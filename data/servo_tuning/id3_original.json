@@ -1,0 +1,8 @@
+{
+  "servo_id": 3,
+  "joint": "index_pip",
+  "time": "2026-10-10T15:46:57",
+  "p_gain": 15,
+  "d_gain": 15,
+  "min_start": 0
+}

@@ -1,0 +1,8 @@
+{
+  "servo_id": 5,
+  "joint": "index_mcp",
+  "time": "2026-10-10T16:12:11",
+  "p_gain": 15,
+  "d_gain": 15,
+  "min_start": 0
+}

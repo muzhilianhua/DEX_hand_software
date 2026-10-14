@@ -1,0 +1,30 @@
+{"servo_id": 1, "joint": "triple_pip", "time": "2026-10-10T15:41:43", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 20, "min_start": 0}}
+{"servo_id": 2, "joint": "triple_dip", "time": "2026-10-10T15:46:46", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 20, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T15:46:57", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 20, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T15:47:01", "p_gain": 20, "d_gain": 15, "min_start": 0, "change": {"p_gain": 25, "min_start": 0}}
+{"servo_id": 4, "joint": "index_dip", "time": "2026-10-10T15:47:07", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 25, "min_start": 0}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T15:47:35", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 25, "min_start": 0}}
+{"servo_id": 8, "joint": "thumb_ip", "time": "2026-10-10T15:47:45", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 25, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T15:51:53", "p_gain": 25, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 0}}
+{"servo_id": 4, "joint": "index_dip", "time": "2026-10-10T15:51:58", "p_gain": 25, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 0}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T15:52:03", "p_gain": 25, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 0}}
+{"servo_id": 8, "joint": "thumb_ip", "time": "2026-10-10T15:52:11", "p_gain": 25, "d_gain": 15, "min_start": 0, "change": {"p_gain": 40, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T15:57:27", "p_gain": 35, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 5}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T15:58:28", "p_gain": 35, "d_gain": 15, "min_start": 5, "change": {"p_gain": 35, "min_start": 1}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T16:02:21", "p_gain": 35, "d_gain": 15, "min_start": 1, "change": {"p_gain": 35, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T16:03:09", "p_gain": 35, "d_gain": 15, "min_start": 0, "change": {"p_gain": 15, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T16:03:25", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 15, "min_start": 1}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T16:09:01", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 0}}
+{"servo_id": 8, "joint": "thumb_ip", "time": "2026-10-10T16:10:25", "p_gain": 40, "d_gain": 15, "min_start": 0, "change": {"p_gain": 40, "min_start": 1}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T16:12:05", "p_gain": 35, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 1}}
+{"servo_id": 5, "joint": "index_mcp", "time": "2026-10-10T16:12:11", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 15, "min_start": 1}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T16:12:57", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 15, "min_start": 1}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T16:14:01", "p_gain": 15, "d_gain": 15, "min_start": 1, "change": {"p_gain": 15, "min_start": 0}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T16:14:18", "p_gain": 15, "d_gain": 15, "min_start": 0, "change": {"p_gain": 35, "min_start": 0}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T16:16:34", "p_gain": 35, "d_gain": 15, "min_start": 0, "change": {"p_gain": 45, "min_start": 0}}
+{"servo_id": 4, "joint": "index_dip", "time": "2026-10-10T16:16:38", "p_gain": 35, "d_gain": 15, "min_start": 0, "change": {"p_gain": 45, "min_start": 0}}
+{"servo_id": 3, "joint": "index_pip", "time": "2026-10-10T16:30:12", "p_gain": 35, "d_gain": 15, "min_start": 0, "action": "tune", "change": {"p_gain": 45, "min_start": 0}}
+{"servo_id": 8, "joint": "thumb_ip", "time": "2026-10-10T17:52:14", "p_gain": 40, "d_gain": 15, "min_start": 1, "action": "tune", "change": {"p_gain": 40, "min_start": 0}}
+{"servo_id": 8, "joint": "thumb_ip", "time": "2026-10-10T17:52:30", "p_gain": 40, "d_gain": 15, "min_start": 0, "action": "tune", "change": {"p_gain": 50, "min_start": 0}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T17:57:47", "p_gain": 45, "d_gain": 15, "min_start": 0, "action": "tune", "change": {"p_gain": 45, "min_start": 1}}
+{"servo_id": 7, "joint": "thumb_mcp", "time": "2026-10-10T18:05:37", "p_gain": 45, "d_gain": 15, "min_start": 1, "action": "tune", "change": {"p_gain": 45, "min_start": 0}}

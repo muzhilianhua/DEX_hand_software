@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>关节受力限制分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --page: #faf8f5; --surface: #ffffff; --ink: #1f1d1a; --ink-2: #57524a; --muted: #8a847a;
+  --rule: #e6e1d8; --accent: #9a3b1f; --good: #2f6b2f; --warn: #a86a00; --bad: #b3261e; --chip: #f1ece4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #161513; --surface: #1e1d1a; --ink: #f2efe9; --ink-2: #c9c3b8; --muted: #8f897f;
+    --rule: #33302b; --accent: #e08a6a; --good: #7cc47c; --warn: #e0a93a; --bad: #ef7a72; --chip: #2a2824;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #161513; --surface: #1e1d1a; --ink: #f2efe9; --ink-2: #c9c3b8; --muted: #8f897f;
+  --rule: #33302b; --accent: #e08a6a; --good: #7cc47c; --warn: #e0a93a; --bad: #ef7a72; --chip: #2a2824;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.75 "Noto Serif SC", Georgia, "Songti SC", serif; }
+main { max-width: 980px; margin: 0 auto; padding: 48px 16px 80px; }
+header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 28px; }
+.kicker { color: var(--accent); letter-spacing: .12em; font-size: 13px; }
+h1 { font-size: 32px; line-height: 1.25; margin: 6px 0 10px; }
+.dek { color: var(--ink-2); font-size: 18px; margin: 0; }
+h2 { font-size: 22px; margin: 40px 0 12px; border-top: 1px solid var(--rule); padding-top: 18px; }
+h3 { font-size: 17px; margin: 18px 0 6px; }
+p { margin: 0 0 14px; }
+.lead::first-letter { float: left; font-size: 56px; line-height: .9; padding: 6px 10px 0 0; color: var(--accent); font-weight: 700; }
+.two { display: grid; grid-template-columns: 2fr 1fr; gap: 28px; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+aside { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--ink-2); font-size: 14px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin: 8px 0 16px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { color: var(--ink-2); font-weight: 600; }
+td.num, th.num { text-align: right; }
+tr.group td { color: var(--ink-2); font-weight: 600; background: var(--chip); }
+.bad { color: var(--bad); } .warn { color: var(--warn); } .good { color: var(--good); }
+.cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+@media (max-width: 760px) { .cards { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+.card h3 { margin-top: 0; }
+.meta { color: var(--muted); font-size: 13px; }
+.rec { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 16px 20px; }
+.correction { background: var(--chip); border-radius: 8px; padding: 12px 16px; font-size: 15px; }
+code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--chip); padding: 0 4px; border-radius: 3px; }
+footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="kicker">DEXHAND · 运动质量分析（二）· 2026-10-10 15:19</div>
+  <h1>ID 3、4、5、7 到不了位：是力不够，不是速度不够</h1>
+  <p class="dek">舵机的位置环只按误差成比例出力，而这四个关节的阻力比其他关节大 2–5 倍。误差攒到足够大，关节才会突然动一下；最后误差小到推不动时，就停在离目标 7–29 步的地方，并一直维持着负载。</p>
+</header>
+
+<div class="two">
+<div>
+<p class="lead">在 "zero" 这次手势运动中，ID 1、2、6、8 在 3.4–6.8 秒内到位，最终误差 ±2 步以内，到位后负载回到 0。ID 3、4、5、7 都没到位：最终误差分别是 +7、−9、+29、−8 步，负载停在 13–46 %。轨迹数据里，舵机内部的目标寄存器始终和发出的设定点一致，没有任何丢包或写入失败；问题出在舵机怎样把目标变成力。</p>
+<p>整段数据里，负载和位置误差几乎成正比：大约每差 1 步出 1.5–1.7 % 的力。这正是舵机内部比例（P）位置环的特征（EEPROM 里 P 增益 = 15，没有积分项）。误差不变，力也就不变，舵机不会因为"等了很久"而加大力度。</p>
+</div>
+<aside>
+  <p><strong>数据来源</strong></p>
+  <p>trace_20261010_151921_zero.csv（8 关节，每关节 425 个采样）</p>
+  <p>verify_motion_id1–8_20261010_151*.json（速度扫描）</p>
+  <p>session_20261010_151830.log</p>
+</aside>
+</div>
+
+<h2>证据一：速度扫描把 8 个关节分成两组</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>关节</th><th class="num">寄存器 100</th><th class="num">300</th><th class="num">1000</th><th>±20 步是否到位</th><th class="num">最大负载</th></tr></thead>
+  <tbody>
+    <tr class="group"><td colspan="6">自由运动组：速度随寄存器上升，300 以上饱和在 400–550 步/秒</td></tr>
+    <tr><td>ID 1 triple_pip</td><td class="num">139 / 156</td><td class="num">453 / 320</td><td class="num">407 / 381</td><td class="good">全部到位</td><td class="num">33 %</td></tr>
+    <tr><td>ID 2 triple_dip</td><td class="num">126 / 126</td><td class="num">317 / 385</td><td class="num">411 / 548</td><td class="good">全部到位</td><td class="num">35 %</td></tr>
+    <tr><td>ID 6 thumb_mcp_rot</td><td class="num">91 / 169</td><td class="num">375 / 385</td><td class="num">404 / 571</td><td class="good">全部到位</td><td class="num">36 %</td></tr>
+    <tr><td>ID 8 thumb_ip</td><td class="num">129 / 116</td><td class="num">272 / 251</td><td class="num">316 / 273</td><td class="good">全部到位</td><td class="num">32 %</td></tr>
+    <tr class="group"><td colspan="6">受力限制组：无论寄存器多大，都只能蠕动 2–8 步/秒</td></tr>
+    <tr><td>ID 3 index_pip</td><td class="num bad">3.5 / 1.8</td><td class="num bad">2.4 / 2.7</td><td class="num bad">7.9 / 2.7</td><td class="bad">都没到位</td><td class="num">30 %</td></tr>
+    <tr><td>ID 4 index_dip</td><td class="num bad">3.8 / 1.8</td><td class="num bad">1.7 / 2.1</td><td class="num bad">2.7 / 2.0</td><td class="bad">都没到位</td><td class="num">27 %</td></tr>
+    <tr><td>ID 5 index_mcp</td><td class="num bad">0 / –</td><td class="num bad">0 / –</td><td class="num bad">0 / 15</td><td class="bad">+ 方向从未到位</td><td class="num">32 %</td></tr>
+    <tr><td>ID 7 thumb_mcp</td><td class="num">90 / <span class="bad">2.1</span></td><td class="num">171 / <span class="bad">2.4</span></td><td class="num">238 / <span class="bad">3.4</span></td><td class="warn">+ 方向能动，− 方向卡住</td><td class="num">32 %</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="meta">数值为"+ 方向 / − 方向"的实测步/秒，取每段运动中间 20–80 % 计算。</p>
+<p>受力限制组的负载只到 27–32 %，舵机明显还有余力，却推不动关节。原因是：测试只给了 20 步的误差，乘上约 1.5 %/步，正好只能出 30 % 左右的力，而这些关节需要的力比这更大。</p>
+
+<h2>证据二：轨迹里的粘滑现象</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>时间</th><th class="num">ID 3 设定点</th><th class="num">ID 3 实际</th><th class="num">误差</th><th class="num">负载</th><th class="num">ID 5 设定点</th><th class="num">ID 5 实际</th><th class="num">误差</th><th class="num">负载</th></tr></thead>
+  <tbody>
+    <tr><td>2.0 s</td><td class="num">439</td><td class="num">443</td><td class="num">4</td><td class="num">9 %</td><td class="num">455</td><td class="num">460</td><td class="num">5</td><td class="num">11 %</td></tr>
+    <tr><td>3.0 s</td><td class="num">432</td><td class="num">444</td><td class="num">12</td><td class="num">21 %</td><td class="num">449</td><td class="num">459</td><td class="num">10</td><td class="num">18 %</td></tr>
+    <tr><td>3.5 s</td><td class="num">427</td><td class="num">444</td><td class="num bad">17</td><td class="num">29 %</td><td class="num">445</td><td class="num">458</td><td class="num">13</td><td class="num">23 %</td></tr>
+    <tr><td>4.0 s</td><td class="num">422</td><td class="num warn">433</td><td class="num">11</td><td class="num">20 %</td><td class="num">441</td><td class="num">457</td><td class="num">16</td><td class="num">27 %</td></tr>
+    <tr><td>5.5 s</td><td class="num">409</td><td class="num">417</td><td class="num">8</td><td class="num">15 %</td><td class="num">430</td><td class="num">456</td><td class="num">26</td><td class="num">42 %</td></tr>
+    <tr><td>8.0 s（结束）</td><td class="num">403</td><td class="num">410</td><td class="num bad">7</td><td class="num">14 %</td><td class="num">425</td><td class="num">454</td><td class="num bad">29</td><td class="num">47 %</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>ID 3：</strong>位置在 443–444 卡了 1.5 秒，等误差攒到 17 步、负载 29 % 时突然一次走了 11 步。整个过程反复"卡住 → 突然动"，这就是你看到的不平滑和延迟。结束时差 7 步，对应的 14 % 推不动关节，于是停住，负载一直保持 14 %。</p>
+<p><strong>ID 5：</strong>负载一直升到 47 % 也几乎没动，结束时差 29 步。它的目标 425 正好是行程下限，越靠近这一端阻力越大。要特别注意：<strong>47 % 的负载会一直维持</strong>，长时间会让舵机发热。</p>
+
+<h2>证据三：健康关节被慢关节拖累</h2>
+<p>上一轮的速度标定对 ID 3、4、7 给出了 <code>max_speed=10</code>，你已经填进了配置。同步规划按最慢的关节决定总时长，所以 "zero" 运动被拉长到 7.7 秒，ID 1 的设定点平均只有约 4.5 步/秒，每 4 个周期才变化 1 步。舵机有 1 步的死区，又只有比例控制，于是健康关节也走成一格一格的。<strong>这是我程序的缺陷，已经修复：</strong>关节在标定中没有到位时，<code>verify-motion</code> 不再给出速度建议，改为提示"受力限制"。</p>
+
+<div class="correction">
+  <p><strong>更正上一份报告：</strong>上一份报告说"速度寄存器不是速度"。新的扫描显示，对能自由运动的关节，寄存器值基本就是步/秒（大约到 300 为止，再往上饱和）。14:21 那次测到的 ID 1、2 只有 5 步/秒，和现在的受力限制是同一种现象。那次之后，ID 1、2 变得能自由运动了。如果中间你调过腱绳或机构，这正好说明问题出在机械上。</p>
+</div>
+
+<h2>解决方向</h2>
+<div class="cards">
+  <div class="card">
+    <h3>1. 机械：降低 ID 3、4、5、7 的阻力（根本措施）</h3>
+    <p>食指的三个关节（3、4、5）都受影响，先查食指共用的部分：腱绳走线和护套的摩擦、滑轮是否顺畅、腱绳是否预紧过度、关节轴是否发紧。ID 7 只有 − 方向卡住，说明那个方向的回程（腱绳或复位弹簧）有问题。ID 5 越靠近 425 阻力越大，把它的行程下限提高 15–25 步可以立刻缓解。</p>
+    <p class="meta">判断标准：扭矩关闭时，用手推这些关节，应该和 1、2、6、8 差不多轻。</p>
+  </div>
+  <div class="card">
+    <h3>2. 舵机参数：提高比例增益，并设置最小启动力</h3>
+    <p>EEPROM 寄存器 21（P 增益，目前 15）决定"每步误差出多少力"。调高后，同样的阻力只需更小的误差就能推动，延迟和残留误差都会变小。寄存器 24（最小启动力，目前 0）在误差超出死区时额外叠加一个固定的力，专门用来克服静摩擦。两者都要写 EEPROM，需要新增一个受控命令（写前确认，写后读回，可一键恢复原值），并逐个关节小步调。P 调太高会抖动或振荡。</p>
+    <p class="meta">中等改动 · 只对受力限制的关节做</p>
+  </div>
+  <div class="card">
+    <h3>3. 软件：摩擦补偿（暂不推荐先做）</h3>
+    <p>当关节持续落后时，把发出的目标往前多推一点（有上限，并且不超出行程），相当于在软件里补一个积分项。缺点是关节一旦挣脱，就容易冲过头，并且会和跟踪误差、堵转保护互相干扰。机械和舵机参数处理好之后，通常就不需要了。</p>
+    <p class="meta">改动中等 · 风险较高</p>
+  </div>
+  <div class="card">
+    <h3>4. 配置：撤销 max_speed = 10</h3>
+    <p>ID 3、4、7 的 <code>max_speed=10</code> 是错误的标定结果，应该删掉这一项（回到默认 150），否则整只手的同步运动都会慢到一格一格。等阻力降下来后，再重跑 <code>verify-motion --speed-sweep</code> 取正确的值。</p>
+    <p class="meta">改一行配置 · 立即见效（对 1、2、6、8 的平滑度）</p>
+  </div>
+</div>
+
+<h2>建议</h2>
+<div class="rec">
+  <ul>
+    <li>先做 4（撤销 <code>max_speed=10</code>），健康关节的平滑度应该立刻恢复。</li>
+    <li>同时做 1（机械检查），这是唯一能根除问题的办法。</li>
+    <li>机械处理后如果残留误差仍然超过 3–5 步，再做 2（调 P 增益和最小启动力）。</li>
+    <li>在 ID 5 的阻力降下来之前，避免让它长时间停在行程下限附近：那里 47 % 的负载会一直维持，舵机会发热。</li>
+  </ul>
+</div>
+
+<footer>分析基于 reports/trace_20261010_151921_zero.csv 和 reports/verify_motion_id*_20261010_151*.json。"负载 ≈ 1.5–1.7 % × 误差"由该次运动全部采样拟合得到；P 增益 15、最小启动力 0 来自此前 diagnose 读出的寄存器 21 和 24。</footer>
+</main>
+</body>
+</html>

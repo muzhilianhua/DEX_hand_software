@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pose 模式抖动分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --page: #faf8f5; --surface: #ffffff; --ink: #1f1d1a; --ink-2: #57524a; --muted: #8a847a;
+  --rule: #e6e1d8; --accent: #9a3b1f; --good: #2f6b2f; --warn: #a86a00; --bad: #b3261e;
+  --chip: #f1ece4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #161513; --surface: #1e1d1a; --ink: #f2efe9; --ink-2: #c9c3b8; --muted: #8f897f;
+    --rule: #33302b; --accent: #e08a6a; --good: #7cc47c; --warn: #e0a93a; --bad: #ef7a72; --chip: #2a2824;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #161513; --surface: #1e1d1a; --ink: #f2efe9; --ink-2: #c9c3b8; --muted: #8f897f;
+  --rule: #33302b; --accent: #e08a6a; --good: #7cc47c; --warn: #e0a93a; --bad: #ef7a72; --chip: #2a2824;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 16px/1.75 "Noto Serif SC", Georgia, "Songti SC", serif; }
+main { max-width: 980px; margin: 0 auto; padding: 48px 16px 80px; }
+header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 28px; }
+.kicker { color: var(--accent); letter-spacing: .12em; font-size: 13px; text-transform: uppercase; }
+h1 { font-size: 34px; line-height: 1.25; margin: 6px 0 10px; }
+.dek { color: var(--ink-2); font-size: 18px; margin: 0; }
+h2 { font-size: 22px; margin: 44px 0 12px; border-top: 1px solid var(--rule); padding-top: 18px; }
+h3 { font-size: 17px; margin: 22px 0 6px; }
+p { margin: 0 0 14px; }
+.lead::first-letter { float: left; font-size: 58px; line-height: .9; padding: 6px 10px 0 0; color: var(--accent); font-weight: 700; }
+.two { display: grid; grid-template-columns: 2fr 1fr; gap: 28px; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+aside { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--ink-2); font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin: 8px 0 16px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; }
+td.num { text-align: right; }
+.table-wrap { overflow-x: auto; }
+.chip { display: inline-block; background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 13px; }
+.bad { color: var(--bad); } .warn { color: var(--warn); } .good { color: var(--good); }
+.cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+@media (max-width: 760px) { .cards { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+.card h3 { margin-top: 0; }
+.meta { color: var(--muted); font-size: 13px; }
+.rec { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 16px 20px; }
+code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--chip); padding: 0 4px; border-radius: 3px; }
+footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="kicker">Dexhand · 运动质量分析 · 2026-10-10</div>
+  <h1>Pose 模式为什么抖、为什么到位不齐</h1>
+  <p class="dek">控制器算出的设定点几乎同时到位；问题在于舵机怎样执行这些设定点：它的“速度”不是可靠的速度，再加上程序的发送方式，以及供电和 ID 5 的机械问题。</p>
+</header>
+
+<div class="two">
+<div>
+<p class="lead">控制程序每 20 ms 给每个已上扭矩的关节发一个新的目标位置，并给出同一个“速度寄存器”值 225，原意是作为舵机侧的第二道限速。离线模拟显示，这一层的同步是成立的：8 个关节的设定点到位时间相差不到 0.1 秒。但 <code>verify-motion</code> 的实测推翻了一个关键假设：SCS0009 的速度寄存器既不是“步/秒”，也不是任何稳定的单位，实际速度强烈取决于运动方向和负载。</p>
+<p>因此，同一份同步轨迹交给 8 个舵机执行时，有的追不上（屈曲方向、拉腱绳、负载重），有的冲过头后停住、等下一个目标（伸展方向有弹簧助力）。前者表现为延迟、到位晚，严重时触发跟踪误差或堵转保护；后者表现为 50 Hz 的走走停停，也就是抖动。</p>
+</div>
+<aside>
+  <p><strong>证据来源</strong></p>
+  <p>verify-motion：ID 1–4，speed 50，±20 步</p>
+  <p>会话日志：14:25–14:50 共 7 个会话</p>
+  <p>离线模拟：现有轨迹代码，典型 pose（各关节从行程 20% 走到 80%）</p>
+</aside>
+</div>
+
+<h2>证据一：速度寄存器与实际速度对不上</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>关节</th><th>方向</th><th class="num">寄存器</th><th class="num">实测 步/秒</th><th>3 s 内到位</th><th class="num">平均负载</th></tr></thead>
+  <tbody>
+    <tr><td>ID 1 triple_pip</td><td>+（屈曲）</td><td class="num">50</td><td class="num bad">5.7</td><td class="bad">否</td><td class="num">−5.5 %</td></tr>
+    <tr><td></td><td>−（伸展）</td><td class="num">50</td><td class="num">20.4</td><td class="good">是</td><td class="num">+6.9 %</td></tr>
+    <tr><td>ID 2 triple_dip</td><td>+（屈曲）</td><td class="num">50</td><td class="num bad">4.9</td><td class="bad">否</td><td class="num">−7.3 %</td></tr>
+    <tr><td></td><td>−（伸展）</td><td class="num">50</td><td class="num warn">55.6</td><td class="good">是</td><td class="num">+5.1 %</td></tr>
+    <tr><td>ID 3 index_pip</td><td>+ / −</td><td class="num">50</td><td class="num bad">3.8 / 1.6</td><td class="bad">否 / 否</td><td class="num">−15 / +12 %</td></tr>
+    <tr><td>ID 4 index_dip</td><td>+ / −</td><td class="num">50</td><td class="num bad">5.0 / 2.9</td><td class="bad">否 / 否</td><td class="num">−10 / +12 %</td></tr>
+  </tbody>
+</table>
+</div>
+<p>同一个寄存器值，实测速度从 1.6 到 55.6 步/秒，相差 35 倍；而且负载只有 5–15 %，舵机并没有被卡住。这说明 SCS0009 的“速度”更像是对输出的一个上限，实际快慢由负载决定。程序目前按“1 单位 ≈ 1 步/秒”给出 225 的上限，对屈曲方向来说，225 对应的实际速度可能远低于轨迹要求的 150 步/秒。</p>
+
+<h2>证据二：保护记录与供电</h2>
+<div class="cards">
+  <div class="card">
+    <h3>ID 5 index_mcp 反复被保护性卸扭矩</h3>
+    <p>14:25–14:34 之间：堵转 5 次（负载 40–64 %），跟踪误差 4 次（28–35 步）。之后跟踪误差阈值被调到 40、堵转门槛调到 60 %，触发停了，但关节跟不上的问题仍在。另外，它静止时的位置 425 正好等于行程下限，verify-motion 因此拒绝测试它，腱绳可能处于预紧或接近干涉的位置。</p>
+    <p class="meta">日志 session_20261010_142336 … 143435</p>
+  </div>
+  <div class="card">
+    <h3>8 个舵机同时报告电压错误</h3>
+    <p>14:41:19，ID 1–8 在同一个周期里全部报告电压错误位，程序随即卸掉全部扭矩。8 个舵机同时报，说明是供电一侧的问题：多个关节同时出力时，电源电流不够或线路压降太大，造成瞬时跌压。跌压会让扭矩瞬间变弱，本身也会造成顿挫。</p>
+    <p class="meta">日志 session_20261010_144013</p>
+  </div>
+</div>
+
+<h2>证据三：程序发送方式本身也在制造顿挫</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>关节</th><th class="num">行程差</th><th class="num">设定点到位</th><th class="num">偏离规划曲线（最大）</th><th class="num">目标未变化的周期</th><th class="num">峰值时舵机忙碌占比</th></tr></thead>
+  <tbody>
+    <tr><td>ID 6 thumb_mcp_rot</td><td class="num">240</td><td class="num">2.78 s</td><td class="num">14.6 步</td><td class="num">31 / 149</td><td class="num">67 %</td></tr>
+    <tr><td>ID 1 triple_pip</td><td class="num">228</td><td class="num">2.78 s</td><td class="num">13.1 步</td><td class="num">32 / 149</td><td class="num">67 %</td></tr>
+    <tr><td>ID 7 thumb_mcp</td><td class="num">150</td><td class="num">2.74 s</td><td class="num">5.3 步</td><td class="num">43 / 149</td><td class="num">44 %</td></tr>
+    <tr><td>ID 5 index_mcp</td><td class="num">105</td><td class="num">2.70 s</td><td class="num">2.2 步</td><td class="num">55 / 149</td><td class="num">44 %</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>走走停停：</strong>目标每周期只前进 0–3 个整数步，而舵机按速度上限冲过去后就停下、等下一个目标。峰值时它也只在 44–67 % 的时间里运动；起步和收尾阶段，21–37 % 的周期目标根本没变，表现为一格一格地跳。</p>
+<p><strong>曲线不一致：</strong>规划时长只考虑了速度上限，没考虑加速度上限（600 步/秒²）。行程长的关节被限速器拖后，中途最多落后规划曲线 15 步，行程短的几乎不落后。所以各关节虽然几乎同时到位，中途却不在同一条归一化曲线上。</p>
+
+<h2>可选的解决方向</h2>
+<div class="cards">
+  <div class="card">
+    <h3>A. 运动轨迹记录（先做）</h3>
+    <p>每次手势、同步或回放运动时，以 50 Hz 记录每个关节的设定点、实际位置、目标寄存器和负载，生成 CSV 和图表，复用 monitor 的报告页。没有这份数据，后面的调参只能靠猜。</p>
+    <p class="meta">改动小 · 只读 · 不改变运动行为</p>
+  </div>
+  <div class="card">
+    <h3>B. 改变流式控制方式</h3>
+    <p>速度寄存器改为接近不限速（例如 1000），让舵机作为纯位置伺服，直接跟随我们算好的平滑轨迹，消除冲过去再停的顿挫。舵机侧的限速作用，改由控制器在发送前检查“每周期目标变化不得超过 max_speed × 周期 × 1.5”来代替。同时让规划时长把加速度上限也考虑进去，所有关节走同一条曲线。</p>
+    <p class="meta">核心修复 · 需要先用 A 的记录在单个关节上验证</p>
+  </div>
+  <div class="card">
+    <h3>C. 按关节、按方向标定实际速度</h3>
+    <p>给 verify-motion 增加速度扫描：寄存器 100 / 300 / 600 / 1000，两个方向各走一次，测出每个关节真实能达到的速度，再据此设定各关节的 <code>max_speed</code>（取屈曲方向实测值的 70 % 左右）。规划时长由最慢的那个关节决定，到位才能真正一致。</p>
+    <p class="meta">中等改动 · 每个关节要上机测一遍</p>
+  </div>
+  <div class="card">
+    <h3>D. 控制频率提高到 100 Hz（可配置）</h3>
+    <p>实测每次读取约 0.5 ms，8 个关节一轮约 4–5 ms，100 Hz 可行。每个周期的目标变化减半，起步和收尾更细腻。</p>
+    <p class="meta">改动小 · 在 B 之后作用才明显</p>
+  </div>
+</div>
+
+<h3>不需要改程序、但必须处理的两件事</h3>
+<ul>
+  <li><strong>供电：</strong>在 8 个关节同时动的时候，用万用表测舵机接线端的电压。请确认电源的额定电流足够 8 个舵机同时出力，并加粗电源和地线或缩短线长。全体电压错误的问题解决之前，其他调参都会受到干扰。</li>
+  <li><strong>ID 5 机械检查：</strong>静止位置 425 正好在行程下限，而且反复在 40–64 % 负载下堵转。请检查腱绳预紧和走线有没有干涉；必要时把行程下限调高一些，让它静止时离限位有余量。</li>
+</ul>
+
+<h2>建议</h2>
+<div class="rec">
+  <p>按 <strong>A → B → C</strong> 的顺序做，D 可选。</p>
+  <ul>
+    <li>先用 A 在真机上录一次当前的 pose 运动，确认上面的判断。</li>
+    <li>B 是消除抖动的主要手段，但它去掉了舵机侧的限速，所以必须连同控制器端的步长检查一起上线，并先在单个关节上验证。</li>
+    <li>C 让规划时长与关节的实际能力一致，解决到位不齐。</li>
+  </ul>
+  <p>供电和 ID 5 这两件硬件事项与软件修改并行处理。</p>
+</div>
+
+<footer>数据：reports/verify_motion_id1–5_20261010_14*.json，reports/session_20261010_14*.log；离线模拟使用 dexhand_servo/control/trajectory.py 的现有实现。</footer>
+</main>
+</body>
+</html>

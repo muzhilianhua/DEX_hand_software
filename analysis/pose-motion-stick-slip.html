@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pose 卡顿根因</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --page: #faf8f5; --surface: #ffffff; --ink: #1f1d1a; --ink-2: #57524a; --muted: #8a847a;
+  --rule: #e6e1d8; --accent: #9a3b1f; --good: #2f6b2f; --warn: #a86a00; --bad: #b3261e;
+  --chip: #f1ece4; --grid: #ece7de;
+  --series-1: #2a78d6; --series-2: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #161513; --surface: #1e1d1a; --ink: #f2efe9; --ink-2: #c9c3b8; --muted: #8f897f;
+    --rule: #33302b; --accent: #e08a6a; --good: #7cc47c; --warn: #e0a93a; --bad: #ef7a72; --chip: #2a2824;
+    --grid: #2c2a26; --series-1: #3987e5; --series-2: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #161513; --surface: #1e1d1a; --ink: #f2efe9; --ink-2: #c9c3b8; --muted: #8f897f;
+  --rule: #33302b; --accent: #e08a6a; --good: #7cc47c; --warn: #e0a93a; --bad: #ef7a72; --chip: #2a2824;
+  --grid: #2c2a26; --series-1: #3987e5; --series-2: #d95926;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 16px/1.75 "Noto Serif SC", Georgia, "Songti SC", serif; }
+main { max-width: 980px; margin: 0 auto; padding: 48px 16px 80px; }
+header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 28px; }
+.kicker { color: var(--accent); letter-spacing: .12em; font-size: 13px; text-transform: uppercase; }
+h1 { font-size: 34px; line-height: 1.25; margin: 6px 0 10px; }
+.dek { color: var(--ink-2); font-size: 18px; margin: 0; }
+h2 { font-size: 22px; margin: 44px 0 12px; border-top: 1px solid var(--rule); padding-top: 18px; }
+h3 { font-size: 17px; margin: 22px 0 6px; }
+p { margin: 0 0 14px; }
+.lead::first-letter { float: left; font-size: 58px; line-height: .9; padding: 6px 10px 0 0; color: var(--accent); font-weight: 700; }
+.two { display: grid; grid-template-columns: 2fr 1fr; gap: 28px; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+aside { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--ink-2); font-size: 14px; }
+aside p { margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin: 8px 0 16px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; }
+td.num, th.num { text-align: right; }
+.table-wrap { overflow-x: auto; }
+.bad { color: var(--bad); } .warn { color: var(--warn); } .good { color: var(--good); }
+.cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+@media (max-width: 760px) { .cards { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+.card h3 { margin-top: 0; }
+.meta { color: var(--muted); font-size: 13px; }
+.rec { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 16px 20px; }
+.rec ol { margin: 0; padding-left: 20px; }
+code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--chip); padding: 0 4px; border-radius: 3px; }
+figure { margin: 18px 0 22px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px 10px; }
+figcaption { font-size: 14px; color: var(--ink-2); margin-top: 6px; }
+.fig-title { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.legend { display: flex; gap: 18px; font-size: 13px; color: var(--ink-2); margin: 2px 0 6px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 18px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font: 11px ui-sans-serif, system-ui, sans-serif; }
+.chart .lbl { fill: var(--ink-2); font-size: 12px; }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 22px; }
+@media (max-width: 760px) { .grid4 { grid-template-columns: 1fr; } }
+.panel-title { font-size: 13px; color: var(--ink-2); margin: 6px 0 0; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 6px 9px; font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+  opacity: 0; transition: opacity .08s; white-space: nowrap; z-index: 2; }
+.formula { background: var(--chip); border-radius: 6px; padding: 10px 14px; font-size: 15px; margin: 6px 0 14px; }
+footer { margin-top: 48px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="kicker">Dexhand · 运动质量分析（续） · 2026-10-10</div>
+  <h1>Go to pose 为什么仍然一顿一顿</h1>
+  <p class="dek">上位机发出的目标轨迹是平滑的，卡顿发生在舵机里。流式下发每 20 ms 给一个只领先 2–3 步的位置目标，SCS0009 因此整个运动过程都处在“临近目标定位”的工况：只有比例控制、有 ±1 步死区，再遇上静摩擦，就形成“停住、憋力、突跳”的循环。速度寄存器用哪种模式不是原因。</p>
+</header>
+
+<div class="two">
+<div>
+<p class="lead">上一份分析（pose-motion-jitter）把抖动归因于速度寄存器：舵机冲到目标后停下，等下一个目标。后来实施的对策包括 <code>fixed</code> 1000、按速度动态设置的 <code>dynamic</code> 模式、规划时长考虑加速度、速度前馈，以及轨迹记录。现在有了 19:06–19:34 的真机轨迹，可以直接检验这些对策：两种速度模式下，关节的停顿比例几乎一样，均为 20–36 % 的运动周期完全不动；目标轨迹本身也没有问题。真正的差别出现在单次写入的对照里：同一个关节、同样的速度，舵机自己生成轨迹时是连续运动的。</p>
+<p>所以问题出在上位机怎样把轨迹交给舵机：每次只给一点点前方的目标，舵机的位置环会一次次在目标附近停下。</p>
+</div>
+<aside>
+  <p><strong>证据来源</strong></p>
+  <p>流式 dynamic：<code>trace_…_190612_grab</code>、<code>190617_zero</code></p>
+  <p>流式 fixed：<code>trace_…_193410_grab</code>、<code>193414_zero</code>、<code>193307_pointing</code></p>
+  <p>单次写入：<code>trace_…_193354_pointing</code> 等 5 条</p>
+  <p>寄存器：<code>diagnose_20261010_121053</code>（死区 26/27 = 1）；P 增益取自 <code>data/servo_tuning/changes.jsonl</code></p>
+  <p>当前配置：8 个关节 <code>max_speed</code> 都是 150，50 Hz</p>
+</aside>
+</div>
+
+<h2>一、先排除：上位机的轨迹和时序没有问题</h2>
+<p>fixed 模式 <code>grab</code> 轨迹中，周期间隔平均 20.0 ms（17.7–22.8 ms），每周期目标最多前进 3 步，没有阶梯式的大跳，最小 jerk 曲线是平滑的。周期抖动约 ±3 ms，相对于后面看到的 100–160 ms 停顿周期可以忽略。</p>
+<p>dynamic 与 fixed 两种速度模式对比（各取 grab + zero 两条轨迹）：停顿比例和最大单周期跳变几乎一样。可见速度寄存器既不是卡顿的原因，也解决不了它。</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>关节</th><th class="num">dynamic 停顿周期</th><th class="num">dynamic 最大跳变（步）</th><th class="num">fixed 停顿周期</th><th class="num">fixed 最大跳变（步）</th></tr></thead>
+  <tbody>
+<tr><td>ID 1 triple_pip</td><td class='num'>28 %</td><td class='num'>8</td><td class='num'>31 %</td><td class='num'>6</td></tr>
+<tr><td>ID 2 triple_dip</td><td class='num'>22 %</td><td class='num'>7</td><td class='num'>22 %</td><td class='num'>7</td></tr>
+<tr><td>ID 3 index_pip</td><td class='num'>33 %</td><td class='num'>6</td><td class='num'>33 %</td><td class='num'>5</td></tr>
+<tr><td>ID 4 index_dip</td><td class='num'>24 %</td><td class='num'>11</td><td class='num'>20 %</td><td class='num'>7</td></tr>
+<tr><td>ID 6 thumb_mcp_rot</td><td class='num'>22 %</td><td class='num'>6</td><td class='num'>19 %</td><td class='num'>8</td></tr>
+<tr><td>ID 7 thumb_mcp</td><td class='num'>34 %</td><td class='num'>5</td><td class='num'>36 %</td><td class='num'>5</td></tr>
+<tr><td>ID 8 thumb_ip</td><td class='num'>28 %</td><td class='num'>5</td><td class='num'>28 %</td><td class='num'>6</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="meta">停顿周期：目标前进了 ≥ 1 步、但读到的位置没变的周期，占目标前进周期的比例。ID 5 在这些位姿里基本不动，未列出。</p>
+
+<h2>二、关节的实际运动：停住 → 憋力 → 突跳</h2>
+<figure>
+  <div class="fig-title">ID 1 triple_pip，流式下发（fixed，grab）：目标与实际位置</div>
+  <div class="legend"><span><i style="background:var(--series-1)"></i>上位机目标（setpoint）</span><span><i style="background:var(--series-2)"></i>实际位置</span></div>
+  <div class="chart" id="fig-track"></div>
+  <figcaption>目标（蓝）匀速平滑上升，实际位置（橙）呈阶梯状：停 2–4 个周期，再一次跳 4–6 步。悬停可查看每个周期的误差和负载。</figcaption>
+</figure>
+<p>逐周期看 ID 1：当误差（舵机当时持有的目标减去位置）为 1–3 步时，负载读数是 <strong>0</strong>，舵机根本不出力；误差积累到 4–7 步，负载升到 8–14 %，关节突破静摩擦后一个周期跳 4–6 步追上目标；落回 ±1 步以内，输出又归零，关节停下。每 5–8 个周期重复一次，即 6–10 Hz 的顿挫，这就是肉眼看到的卡顿。</p>
+<div class="formula">突破静摩擦所需误差 ≈ 死区 + 静摩擦所需负载 ÷ （每步误差对应的负载）<br>ID 1：1 + 10 % ÷ ~2 %/步（P = 20）≈ 5–6 步，与实测的跳变幅度一致。</div>
+<p>SCS0009 的位置环只有比例项：输出 ≈ P × 误差，P = 15 时约 1.5–1.7 % 负载/步。寄存器 26/27 的死区是 ±1 步，误差在 ±1 步以内时完全不出力。静摩擦大于动摩擦，所以关节一旦起步就会冲过平衡点、追上目标，然后停住。各关节的数据如下（fixed，grab）：</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>关节</th><th class="num">P 增益</th><th class="num">停顿周期</th><th class="num">最大跳变（步）</th><th class="num">最大滞后（步）</th><th class="num">负载 中位 / 最大</th></tr></thead>
+  <tbody>
+<tr><td>ID 1 triple_pip</td><td class='num'>20</td><td class='num'>34 %</td><td class='num'>6</td><td class='num'>7</td><td class='num'>0 / 16 %</td></tr>
+<tr><td>ID 2 triple_dip</td><td class='num'>20</td><td class='num'>23 %</td><td class='num'>7</td><td class='num'>7</td><td class='num'>7 / 16 %</td></tr>
+<tr><td>ID 3 index_pip</td><td class='num'>45</td><td class='num'>31 %</td><td class='num'>4</td><td class='num'>6</td><td class='num'>14 / 27 %</td></tr>
+<tr><td>ID 4 index_dip</td><td class='num'>45</td><td class='num'>20 %</td><td class='num'>7</td><td class='num'>7</td><td class='num'>14 / 32 %</td></tr>
+<tr><td>ID 6 thumb_mcp_rot</td><td class='num'>15</td><td class='num'>20 %</td><td class='num'>8</td><td class='num'>14</td><td class='num'>15 / 24 %</td></tr>
+<tr><td>ID 7 thumb_mcp</td><td class='num'>45</td><td class='num'>40 %</td><td class='num'>5</td><td class='num'>6</td><td class='num'>14 / 27 %</td></tr>
+<tr><td>ID 8 thumb_ip</td><td class='num'>50</td><td class='num'>26 %</td><td class='num'>6</td><td class='num'>8</td><td class='num'>24 / 40 %</td></tr>
+  </tbody>
+</table>
+</div>
+<p>可以分成三类：</p>
+<ul>
+  <li><strong>ID 1、2、3、7：</strong>典型的停—跳，停顿 23–40 %。</li>
+  <li><strong>ID 6：</strong>P 仍是出厂值 15，表现为连续但大幅滞后，跟踪误差随速度增大到 10–16 步。看起来不太卡，但会和其他关节不同步。</li>
+  <li><strong>ID 8：</strong>腱绳预紧大，需要 20–40 % 负载才能动，滞后稳定在 6–9 步，负载在 13–40 % 之间来回，同样是小幅的停—跳。</li>
+</ul>
+
+<h2>三、关键对照：单次写入时同一个关节是连续运动的</h2>
+<p>单次写入时，舵机收到的是远处的终点目标，速度寄存器为 150，和流式下发的峰值速度相同，方向也相同。下面比较主运动段（走完 95 % 行程之前）的情况：</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>关节</th><th class="num">停顿周期<br>流式</th><th class="num">停顿周期<br>单次写入</th><th class="num">零负载周期<br>流式</th><th class="num">零负载周期<br>单次写入</th><th class="num">最大跳变<br>流式</th><th class="num">最大跳变<br>单次写入</th></tr></thead>
+  <tbody>
+<tr><td>ID 1 triple_pip</td><td class='num bad'>34 %</td><td class='num good'>3 %</td><td class='num bad'>35 %</td><td class='num good'>6 %</td><td class='num'>6</td><td class='num'>8</td></tr>
+<tr><td>ID 2 triple_dip</td><td class='num bad'>23 %</td><td class='num good'>0 %</td><td class='num bad'>19 %</td><td class='num good'>0 %</td><td class='num'>7</td><td class='num'>6</td></tr>
+  </tbody>
+</table>
+</div>
+<figure>
+  <div class="fig-title">ID 1 每周期的位置变化和负载：流式下发 vs 单次写入（各 1.3 s）</div>
+  <div class="grid4">
+    <div><div class="panel-title">流式下发：每周期位置变化（步）</div><div class="chart" id="fig-d-stream"></div></div>
+    <div><div class="panel-title">单次写入：每周期位置变化（步）</div><div class="chart" id="fig-d-single"></div></div>
+    <div><div class="panel-title">流式下发：|负载|（%）</div><div class="chart" id="fig-l-stream"></div></div>
+    <div><div class="panel-title">单次写入：|负载|（%）</div><div class="chart" id="fig-l-single"></div></div>
+  </div>
+  <figcaption>流式下发时，位置变化是“0、0、0、5”的脉冲，负载在 0 与 10 % 之间开关。单次写入时，每周期稳定前进 2–5 步，负载一直保持在 7–12 %，关节始终处在动摩擦区。</figcaption>
+</figure>
+<h3>为什么会这样（推断）</h3>
+<p>单次写入时，舵机内部按速度寄存器生成的参考位置一路领先于关节，误差始终保持在死区之外，电机持续出力，关节一直处在动摩擦区。流式下发时，目标只比关节领先 2–3 步：</p>
+<ul>
+  <li><strong>fixed（寄存器 1000）：</strong>内部参考约 6 ms 就走到这一周期的目标并停下。</li>
+  <li><strong>dynamic（1.3 × v）：</strong>参考同样在周期结束前约 23 % 的时间就到达目标。</li>
+</ul>
+<p>无论哪种模式，关节追近后误差都会落进死区，于是停下、被静摩擦“粘住”。换句话说，流式下发让舵机在整个运动中都处于“收尾定位”工况，而这个工况恰恰是它最差的。SCS0009 固件内部怎样生成速度轨迹没有公开文档，所以这一条是根据数据做的推断；下文 A0 的零代码试验可以直接验证。</p>
+
+<h2>四、加重卡顿的其他因素</h2>
+<div class="cards">
+  <div class="card">
+    <h3>速度设得低</h3>
+    <p>8 个关节的 <code>max_speed</code> 现在都是 150，而速度扫描给出的建议值是 ID 1 266、ID 2 287、ID 6 282、ID 8 190。150 步/s 相当于每周期 3 步，和突破静摩擦所需的误差（4–6 步）是同一个量级。最小 jerk 曲线的起步和收尾段速度更低，每周期不到 1 步，停—跳最明显。摩擦在低速下最难处理（Stribeck 效应）。</p>
+  </div>
+  <div class="card">
+    <h3>P 增益偏低且不一致</h3>
+    <p>ID 1、2 是 20，ID 6 是出厂值 15，其余是 45–50。停—跳的幅度大约和 P 成反比，滞后也是。各关节滞后不同，同一条最小 jerk 曲线在实际运动中就不再同步。</p>
+  </div>
+  <div class="card">
+    <h3>力受限关节</h3>
+    <p>ID 3、4、5、7、8 需要 15–50 % 负载才能动。单次写入的轨迹里，ID 7、8 在收尾段有 3–4 s 的爬行（82–88 % 的周期不动），ID 2 停在离目标 4 步的地方。这类关节无论用哪种控制方式都会受摩擦和预紧影响。另外，ID 5 当前的 min-start 是 1，之前的调试记录显示 ≥ 1 会引起振荡，建议核对。</p>
+  </div>
+  <div class="card">
+    <h3>次要因素</h3>
+    <p>目标取整到 1 步（约 0.29°）、50 Hz 更新、±3 ms 周期抖动：这三项都比 4–6 步的停—跳小一个量级。改成 100 Hz 也帮不上忙，因为每次更新后舵机参考仍会走到目标并停下。</p>
+  </div>
+</div>
+
+<h2>五、改进方向</h2>
+<div class="cards">
+  <div class="card">
+    <h3>A. 带前瞻的流式下发（主要对策）</h3>
+    <p>每周期发送的目标改为 <code>setpoint(t + T<sub>lead</sub>)</code>，T<sub>lead</sub> 约 0.1–0.2 s；速度寄存器 ≈ 当前轨迹速度 |v(t)|，增益约 1.0。这样舵机的内部参考就按轨迹速度连续前进，追不上目标，也不会停下，舵机一直处在单次写入那种工况。前瞻量从 0 开始随速度平滑增长，每包目标的变化仍是 2–4 步，不违反单包跳变上限。跟踪误差检查要改为对照不带前瞻的 setpoint(t)。</p>
+    <p class="meta">核心修复 · 改 worker 发送逻辑 · 先在 ID 1 上验证</p>
+  </div>
+  <div class="card">
+    <h3>A0. 零代码验证试验（先做）</h3>
+    <p>只使能 ID 1，dynamic 模式，把 <code>MotionConfig.stream_speed_gain</code> 从 1.3 临时改成 0.8，跑同一个 grab。速度寄存器低于轨迹速度时，内部参考在一个周期内到不了目标，就会连续前进。如果停顿周期从约 30 % 明显下降，就证实了上面的机理。代价是滞后会累积，收尾段有一段慢速爬行，所以只用来做试验。</p>
+    <p class="meta">改一个数字 · 5 分钟</p>
+  </div>
+  <div class="card">
+    <h3>B. 提高 P 增益（并行）</h3>
+    <p>ID 1、2 从 20 提到 30–35，ID 6 从 15 提到 25–30，每次提高不超过 10，并观察是否出现蜂鸣或振荡。突破所需误差和跳变幅度大约按 P 的比例缩小，ID 6 的滞后也会同步减小。</p>
+    <p class="meta"><code>tune-servo</code> · 原值已备份</p>
+  </div>
+  <div class="card">
+    <h3>C. 恢复实测的 max_speed</h3>
+    <p>自由关节（ID 1、2、6、8）改回速度扫描的建议值，缩短低速段所占比例。力受限关节保持 150，直到机械问题解决。</p>
+    <p class="meta">config.py · 无风险</p>
+  </div>
+  <div class="card">
+    <h3>D. 机械：降低摩擦和预紧</h3>
+    <p>食指（ID 3、4、5）和拇指（ID 7、8）的腱绳走线和预紧是摩擦的来源，也是力受限的根本原因。软件只能减轻它们的表现，不能消除。</p>
+    <p class="meta">硬件 · 与软件并行</p>
+  </div>
+  <div class="card">
+    <h3>不建议：上位机外环积分</h3>
+    <p>在上位机侧加 PI，让目标随累计误差前移，看起来能补偿滞后。但积分器和静摩擦组合会产生自激的“猎振”（hunting），在 50 Hz 和 1 步分辨率下更难调，收益不如 A。</p>
+    <p class="meta">风险高</p>
+  </div>
+</div>
+
+<div class="rec" style="margin-top:22px">
+  <p><strong>建议顺序</strong></p>
+  <ol>
+    <li>A0：只使能 ID 1，<code>stream_speed_gain = 0.8</code>，对比停顿周期，用 5 分钟验证机理。</li>
+    <li>机理成立，就实现 A（前瞻流式下发），先在单关节上验证，再推广到全部关节。</li>
+    <li>同时做 B（ID 1、2、6 的 P 增益）和 C（恢复 max_speed）。</li>
+    <li>D 的机械问题与软件并行处理。软件改进后，力受限关节仍可能在收尾段爬行。</li>
+  </ol>
+</div>
+
+<footer>数据：reports/trace_20261010_19*.csv（50 Hz，每周期开始时的读数，反映的是上一周期发出的目标）、diagnose_20261010_121053.json、data/servo_tuning/changes.jsonl。由 trace CSV 直接计算。</footer>
+</main>
+
+<script id="trace-data" type="application/json">{"stream": [{"t": 0.0, "sp": 526.0, "pos": 525, "load": 0.0}, {"t": 0.02, "sp": 526.0, "pos": 526, "load": 0.0}, {"t": 0.04, "sp": 527.0, "pos": 526, "load": 0.0}, {"t": 0.06, "sp": 527.0, "pos": 526, "load": 0.0}, {"t": 0.08, "sp": 528.0, "pos": 526, "load": 0.0}, {"t": 0.1, "sp": 528.0, "pos": 526, "load": 0.0}, {"t": 0.12, "sp": 529.0, "pos": 526, "load": 0.0}, {"t": 0.14, "sp": 530.0, "pos": 527, "load": -6.5}, {"t": 0.16, "sp": 530.0, "pos": 526, "load": -10.5}, {"t": 0.18, "sp": 531.0, "pos": 526, "load": -10.5}, {"t": 0.2, "sp": 532.0, "pos": 528, "load": -8.5}, {"t": 0.22, "sp": 533.0, "pos": 531, "load": 0.0}, {"t": 0.24, "sp": 533.0, "pos": 532, "load": 0.0}, {"t": 0.26, "sp": 534.0, "pos": 532, "load": 0.0}, {"t": 0.28, "sp": 535.0, "pos": 533, "load": 0.0}, {"t": 0.3, "sp": 536.0, "pos": 533, "load": 0.0}, {"t": 0.32, "sp": 537.0, "pos": 533, "load": -8.5}, {"t": 0.34, "sp": 538.0, "pos": 533, "load": -10.5}, {"t": 0.36, "sp": 540.0, "pos": 534, "load": -10.5}, {"t": 0.38, "sp": 541.0, "pos": 534, "load": -14.5}, {"t": 0.4, "sp": 542.0, "pos": 537, "load": -9.0}, {"t": 0.42, "sp": 543.0, "pos": 542, "load": 0.0}, {"t": 0.44, "sp": 545.0, "pos": 543, "load": 0.0}, {"t": 0.46, "sp": 546.0, "pos": 547, "load": 0.0}, {"t": 0.48, "sp": 547.0, "pos": 548, "load": 0.0}, {"t": 0.5, "sp": 549.0, "pos": 548, "load": 0.0}, {"t": 0.52, "sp": 550.0, "pos": 548, "load": 0.0}, {"t": 0.54, "sp": 552.0, "pos": 548, "load": 0.0}, {"t": 0.56, "sp": 553.0, "pos": 549, "load": -8.5}, {"t": 0.58, "sp": 555.0, "pos": 549, "load": -10.5}, {"t": 0.6, "sp": 557.0, "pos": 551, "load": -10.5}, {"t": 0.62, "sp": 558.0, "pos": 553, "load": -10.5}, {"t": 0.64, "sp": 560.0, "pos": 558, "load": 0.0}, {"t": 0.66, "sp": 562.0, "pos": 559, "load": 0.0}, {"t": 0.68, "sp": 564.0, "pos": 560, "load": -6.5}, {"t": 0.7, "sp": 566.0, "pos": 560, "load": -10.5}, {"t": 0.72, "sp": 567.0, "pos": 560, "load": -14.5}, {"t": 0.74, "sp": 569.0, "pos": 562, "load": -12.5}, {"t": 0.76, "sp": 571.0, "pos": 565, "load": -9.0}, {"t": 0.78, "sp": 573.0, "pos": 568, "load": -7.0}, {"t": 0.8, "sp": 575.0, "pos": 574, "load": 0.0}, {"t": 0.82, "sp": 577.0, "pos": 576, "load": 0.0}, {"t": 0.84, "sp": 579.0, "pos": 576, "load": 0.0}, {"t": 0.86, "sp": 581.0, "pos": 576, "load": -8.5}, {"t": 0.88, "sp": 583.0, "pos": 576, "load": -12.5}, {"t": 0.9, "sp": 585.0, "pos": 579, "load": -10.5}, {"t": 0.92, "sp": 587.0, "pos": 581, "load": -10.5}, {"t": 0.94, "sp": 589.0, "pos": 585, "load": -5.0}, {"t": 0.96, "sp": 592.0, "pos": 587, "load": -6.5}, {"t": 0.98, "sp": 594.0, "pos": 588, "load": -10.5}, {"t": 1.0, "sp": 596.0, "pos": 591, "load": -7.0}, {"t": 1.02, "sp": 598.0, "pos": 593, "load": -7.0}, {"t": 1.04, "sp": 600.0, "pos": 596, "load": 0.0}, {"t": 1.06, "sp": 602.0, "pos": 597, "load": -8.5}, {"t": 1.08, "sp": 604.0, "pos": 598, "load": -10.5}, {"t": 1.1, "sp": 606.0, "pos": 600, "load": -9.0}, {"t": 1.12, "sp": 609.0, "pos": 603, "load": -7.0}, {"t": 1.14, "sp": 611.0, "pos": 606, "load": -7.0}, {"t": 1.16, "sp": 613.0, "pos": 609, "load": -6.5}, {"t": 1.18, "sp": 615.0, "pos": 611, "load": -6.5}, {"t": 1.2, "sp": 617.0, "pos": 613, "load": -6.5}, {"t": 1.22, "sp": 619.0, "pos": 615, "load": -5.0}, {"t": 1.24, "sp": 621.0, "pos": 616, "load": -8.5}, {"t": 1.26, "sp": 623.0, "pos": 617, "load": -10.5}, {"t": 1.28, "sp": 625.0, "pos": 618, "load": -12.5}], "single": [{"t": 0.0, "pos": 522, "load": -20.5}, {"t": 0.02, "pos": 527, "load": -15.5}, {"t": 0.04, "pos": 532, "load": -9.5}, {"t": 0.06, "pos": 536, "load": -11.0}, {"t": 0.08, "pos": 542, "load": 5.5}, {"t": 0.1, "pos": 547, "load": 0.0}, {"t": 0.12, "pos": 549, "load": 0.0}, {"t": 0.14, "pos": 549, "load": -8.5}, {"t": 0.16, "pos": 550, "load": -14.5}, {"t": 0.18, "pos": 553, "load": -14.5}, {"t": 0.2, "pos": 559, "load": -5.5}, {"t": 0.22, "pos": 562, "load": -7.0}, {"t": 0.24, "pos": 564, "load": -10.5}, {"t": 0.26, "pos": 566, "load": -12.5}, {"t": 0.28, "pos": 571, "load": -7.0}, {"t": 0.3, "pos": 574, "load": -7.0}, {"t": 0.32, "pos": 577, "load": -7.0}, {"t": 0.34, "pos": 579, "load": -10.5}, {"t": 0.36, "pos": 581, "load": -9.0}, {"t": 0.38, "pos": 585, "load": -9.0}, {"t": 0.4, "pos": 588, "load": -9.0}, {"t": 0.42, "pos": 592, "load": -7.0}, {"t": 0.44, "pos": 595, "load": -7.0}, {"t": 0.46, "pos": 597, "load": -10.5}, {"t": 0.48, "pos": 600, "load": -10.5}, {"t": 0.5, "pos": 602, "load": -12.5}, {"t": 0.52, "pos": 607, "load": -7.0}, {"t": 0.54, "pos": 610, "load": -7.0}, {"t": 0.56, "pos": 612, "load": -10.5}, {"t": 0.58, "pos": 614, "load": -12.5}, {"t": 0.6, "pos": 617, "load": -11.0}, {"t": 0.62, "pos": 618, "load": -16.5}, {"t": 0.64, "pos": 620, "load": -18.5}, {"t": 0.66, "pos": 626, "load": -9.5}, {"t": 0.68, "pos": 629, "load": -11.0}, {"t": 0.7, "pos": 631, "load": -14.5}, {"t": 0.72, "pos": 634, "load": -14.5}, {"t": 0.74, "pos": 636, "load": -16.5}, {"t": 0.76, "pos": 638, "load": -18.5}, {"t": 0.78, "pos": 643, "load": -13.0}, {"t": 0.8, "pos": 646, "load": -13.0}, {"t": 0.82, "pos": 651, "load": -7.5}, {"t": 0.84, "pos": 659, "load": 0.0}, {"t": 0.86, "pos": 660, "load": 0.0}, {"t": 0.88, "pos": 661, "load": -4.5}, {"t": 0.9, "pos": 662, "load": -12.5}, {"t": 0.92, "pos": 665, "load": -11.0}, {"t": 0.94, "pos": 667, "load": -14.5}, {"t": 0.96, "pos": 671, "load": -11.0}, {"t": 0.98, "pos": 675, "load": -9.0}, {"t": 1.0, "pos": 680, "load": -7.0}, {"t": 1.02, "pos": 682, "load": -7.0}, {"t": 1.04, "pos": 684, "load": -9.0}, {"t": 1.06, "pos": 688, "load": -10.5}, {"t": 1.08, "pos": 690, "load": -11.0}, {"t": 1.1, "pos": 693, "load": -11.0}, {"t": 1.12, "pos": 697, "load": -9.0}, {"t": 1.14, "pos": 700, "load": -9.0}, {"t": 1.16, "pos": 702, "load": -12.5}, {"t": 1.18, "pos": 706, "load": -9.0}, {"t": 1.2, "pos": 708, "load": -11.0}, {"t": 1.22, "pos": 709, "load": -16.5}, {"t": 1.24, "pos": 709, "load": -20.5}, {"t": 1.26, "pos": 713, "load": -19.0}]}</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById("trace-data").textContent);
+  const NS = "http://www.w3.org/2000/svg";
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const el = (tag, attrs, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+  const tip = (host) => {
+    const d = document.createElement("div");
+    d.className = "tip";
+    host.appendChild(d);
+    return d;
+  };
+  const showTip = (t, host, x, y, html) => {
+    t.innerHTML = html;
+    t.style.opacity = 1;
+    const w = host.clientWidth, tw = t.offsetWidth;
+    t.style.left = Math.min(Math.max(0, x + 12), w - tw) + "px";
+    t.style.top = Math.max(0, y - 10) + "px";
+  };
+  const ticks = (lo, hi, n) => {
+    const step = Math.pow(10, Math.floor(Math.log10((hi - lo) / n)));
+    const s = [1, 2, 5, 10].map((m) => m * step).find((m) => (hi - lo) / m <= n) || step * 10;
+    const out = [];
+    for (let v = Math.ceil(lo / s) * s; v <= hi + 1e-9; v += s) out.push(+v.toFixed(6));
+    return out;
+  };
+
+  function axes(svg, W, H, m, x, y, xt, yt, yfmt) {
+    for (const v of yt) {
+      el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: css("--grid"), "stroke-width": 1 }, svg);
+      el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = yfmt ? yfmt(v) : v;
+    }
+    for (const v of xt) {
+      el("text", { x: x(v), y: H - m.b + 16, "text-anchor": "middle" }, svg).textContent = v.toFixed(1) + " s";
+    }
+  }
+
+  function trackChart(id, rows) {
+    const host = document.getElementById(id);
+    const W = 900, H = 300, m = { l: 44, r: 70, t: 10, b: 26 };
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": "ID 1 setpoint and actual position over time" }, host);
+    const t1 = rows[rows.length - 1].t;
+    const vals = rows.flatMap((r) => [r.sp, r.pos]);
+    const lo = Math.floor(Math.min(...vals) / 10) * 10, hi = Math.ceil(Math.max(...vals) / 10) * 10;
+    const x = (t) => m.l + (t / t1) * (W - m.l - m.r);
+    const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+    axes(svg, W, H, m, x, y, ticks(0, t1, 6), ticks(lo, hi, 5));
+    const line = (key, color, stepped) => {
+      let d = "";
+      rows.forEach((r, i) => {
+        if (i === 0) d += `M${x(r.t)},${y(r[key])}`;
+        else if (stepped) d += `H${x(r.t)}V${y(r[key])}`;
+        else d += `L${x(r.t)},${y(r[key])}`;
+      });
+      el("path", { d, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    };
+    line("sp", css("--series-1"), false);
+    line("pos", css("--series-2"), true);
+    const last = rows[rows.length - 1];
+    el("text", { x: W - m.r + 6, y: y(last.sp) - 2, class: "lbl" }, svg).textContent = "目标";
+    el("text", { x: W - m.r + 6, y: y(last.pos) + 12, class: "lbl" }, svg).textContent = "实际";
+    const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--muted"), "stroke-width": 1, opacity: 0 }, svg);
+    const t = tip(host);
+    const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" }, svg);
+    hit.addEventListener("mousemove", (e) => {
+      const box = svg.getBoundingClientRect();
+      const tx = ((e.clientX - box.left) / box.width * W - m.l) / (W - m.l - m.r) * t1;
+      let k = 0;
+      rows.forEach((r, i) => { if (Math.abs(r.t - tx) < Math.abs(rows[k].t - tx)) k = i; });
+      const r = rows[k], prev = rows[Math.max(0, k - 1)];
+      cross.setAttribute("x1", x(r.t)); cross.setAttribute("x2", x(r.t)); cross.setAttribute("opacity", 1);
+      showTip(t, host, e.clientX - box.left, e.clientY - box.top,
+        `t ${r.t.toFixed(2)} s<br>目标 ${r.sp.toFixed(0)} · 实际 ${r.pos}<br>误差（对上周期目标）${(prev.sp - r.pos).toFixed(0)} 步<br>负载 ${r.load.toFixed(1)} %`);
+    });
+    hit.addEventListener("mouseleave", () => { t.style.opacity = 0; cross.setAttribute("opacity", 0); });
+  }
+
+  function barChart(id, values, times, yMax, color, unit) {
+    const host = document.getElementById(id);
+    const W = 440, H = 150, m = { l: 30, r: 6, t: 8, b: 22 };
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": id }, host);
+    const n = values.length, t1 = times[times.length - 1] || 1;
+    const bw = (W - m.l - m.r) / n;
+    const x = (t) => m.l + (t / t1) * (W - m.l - m.r - bw);
+    const y = (v) => m.t + (1 - v / yMax) * (H - m.t - m.b);
+    axes(svg, W, H, m, (t) => x(t) + bw / 2, y, ticks(0, t1, 4), ticks(0, yMax, 3));
+    const t = tip(host);
+    values.forEach((v, i) => {
+      const xi = x(times[i]) + 1, w = Math.max(1, bw - 2), top = y(v), base = y(0);
+      if (v > 0) {
+        const r = Math.min(2, w / 2, base - top);
+        el("path", { d: `M${xi},${base}V${top + r}Q${xi},${top} ${xi + r},${top}H${xi + w - r}Q${xi + w},${top} ${xi + w},${top + r}V${base}Z`,
+          fill: color }, svg);
+      } else {
+        el("line", { x1: xi, x2: xi + w, y1: base, y2: base, stroke: css("--bad"), "stroke-width": 2 }, svg);
+      }
+      const hit = el("rect", { x: x(times[i]), y: m.t, width: bw, height: H - m.t - m.b, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", (e) => {
+        const box = svg.getBoundingClientRect();
+        showTip(t, host, e.clientX - box.left, e.clientY - box.top, `t ${times[i].toFixed(2)} s<br>${v.toFixed(1)} ${unit}`);
+      });
+      hit.addEventListener("mouseleave", () => { t.style.opacity = 0; });
+    });
+  }
+
+  function render() {
+    for (const id of ["fig-track", "fig-d-stream", "fig-d-single", "fig-l-stream", "fig-l-single"]) {
+      document.getElementById(id).innerHTML = "";
+    }
+    trackChart("fig-track", data.stream);
+    const diff = (rows) => rows.slice(1).map((r, i) => Math.abs(r.pos - rows[i].pos));
+    const times = (rows) => rows.slice(1).map((r) => r.t);
+    const loads = (rows) => rows.slice(1).map((r) => Math.abs(r.load));
+    const dMax = Math.max(8, ...diff(data.stream), ...diff(data.single));
+    const lMax = Math.ceil(Math.max(...loads(data.stream), ...loads(data.single)) / 5) * 5;
+    barChart("fig-d-stream", diff(data.stream), times(data.stream), dMax, css("--series-2"), "步");
+    barChart("fig-d-single", diff(data.single), times(data.single), dMax, css("--series-2"), "步");
+    barChart("fig-l-stream", loads(data.stream), times(data.stream), lMax, css("--series-1"), "%");
+    barChart("fig-l-single", loads(data.single), times(data.single), lMax, css("--series-1"), "%");
+  }
+  render();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+})();
+</script>
+</body>
+</html>

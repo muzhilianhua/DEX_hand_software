@@ -1,0 +1,8 @@
+{
+  "servo_id": 4,
+  "joint": "index_dip",
+  "time": "2026-10-10T15:47:07",
+  "p_gain": 15,
+  "d_gain": 15,
+  "min_start": 0
+}
