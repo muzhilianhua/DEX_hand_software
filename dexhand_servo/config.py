@@ -68,6 +68,9 @@ JOINTS: dict[int, JointConfig] = {
     6: JointConfig("thumb_mcp_rot", min_position=300, max_position=700),
     7: JointConfig("thumb_mcp", min_position=650, max_position=900),
     8: JointConfig("thumb_ip", min_position=20, max_position=280),
+    # 9: not backdrivable, so not measured with `monitor`. Max = servo EEPROM max angle (1003; it rested
+    # at 1006), min = 400 below; narrow/widen by trial
+    9: JointConfig("thumb_cmc", min_position=503, max_position=1003)
 }
 # ---------------------------------------------------------------------------------------
 

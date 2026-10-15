@@ -45,9 +45,9 @@ def armed(controller, servo_id):
     return snap is not None and snap.joints[servo_id].armed
 
 
-def test_window_has_eight_joint_panels(gui) -> None:
+def test_window_has_a_panel_per_limited_joint(gui) -> None:
     window, controller, fake = gui
-    assert len(window.panels) == 8
+    assert set(window.panels) == {i for i, j in JOINTS.items() if j.has_travel_limits}
     assert window.stack.count() == 5
 
 
