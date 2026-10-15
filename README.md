@@ -1,7 +1,8 @@
 # Dexhand servo bus bring-up and control
 
 Bring-up, diagnostics and a PySide6 control GUI for the 8-DoF Dexhand prototype: 8 × Feetech
-SCS0009 on one TTL half-duplex bus, driven from a Mac through a Feetech FE-URT-2 over USB.
+SCS0009 on one TTL half-duplex bus, driven from macOS or Windows through a Feetech FE-URT-2 over
+USB.
 
 The hand has **no mechanical end stops**. Every packet is checked twice against the active write
 policy, in [safe_bus.py](dexhand_servo/safe_bus.py):
@@ -39,12 +40,56 @@ broadcast WRITE. A SYNC_WRITE with one bad entry is refused as a whole.
 
 ## Setup
 
+Requires [uv](https://docs.astral.sh/uv/getting-started/installation/). uv reads
+`.python-version` and installs Python 3.12 by itself if it is missing.
+
 ```sh
-cd EE/servo_bringup
-uv sync --extra gui      # drop --extra gui if you only need the CLI tools
-uv run pytest            # offline: simulated servos and an offscreen GUI, no hardware needed
+git clone <repo-url> servo_bringup
+cd servo_bringup
+uv sync --locked --extra gui   # drop --extra gui if you only need the CLI tools
+uv run pytest                  # offline: simulated servos and an offscreen GUI, no hardware needed
 uv run dexhand-servo list-ports
 ```
+
+Never copy a `.venv` between machines: it contains absolute paths and platform-specific binaries.
+Delete it and run `uv sync` again.
+
+Without uv, use the pinned, hash-checked requirements exported from `uv.lock`:
+
+```sh
+python -m venv .venv                         # Python 3.12+
+source .venv/bin/activate                    # Windows: .venv\Scripts\activate
+pip install --require-hashes -r requirements-dev.txt   # or requirements.txt: no pytest
+pip install --no-deps -e .
+```
+
+Serial ports: macOS uses `/dev/cu.*` (the tool maps `/dev/tty.*` to `cu.*` for you); Windows uses
+`COMn`, e.g. `--port COM5`. `list-ports` shows what is connected.
+
+## Collaborating
+
+- `uv.lock` is committed and is the source of truth for dependency versions. Commit it whenever it
+  changes.
+- Add or change a dependency with `uv add <pkg>` (or `uv add --dev <pkg>`), never by editing
+  `requirements*.txt` by hand. Then regenerate the requirements files:
+
+  ```sh
+  uv export --locked --extra gui --no-dev --no-emit-project -o requirements.txt
+  uv export --locked --extra gui --no-emit-project -o requirements-dev.txt
+  ```
+
+- Run `uv run pytest` before pushing. The suite needs no hardware, and must pass on both macOS and
+  Windows.
+- Use `time.perf_counter()` for timing, not `time.monotonic()`: on Windows with Python 3.12,
+  `monotonic()` only ticks every 15.6 ms.
+- Open text files with `encoding="utf-8"`; the Windows default (cp1252) cannot write the plot
+  pages.
+- Line endings are normalised to LF by `.gitattributes`.
+- `reports/` (run output) is ignored. `data/` (poses, recordings, original servo tuning) is
+  tracked, because it is tied to this specific hand.
+- **[config.py](dexhand_servo/config.py) `JOINTS` is safety-critical:** the travel limits are the
+  only thing preventing a joint from being driven past its mechanical range. Review changes to it
+  as carefully as code changes, and say in the commit message how the limits were measured.
 
 ## Pre-flight hardware checklist (before first power-up)
 
@@ -397,5 +442,6 @@ buzzing or oscillation.
 - 16-bit values are decoded big-endian (potentiometer servos; SDK `scscl` uses `protocol_end=1`).
   Register 2 (END) is checked to confirm this.
 - The URT-2's USB-serial chip is not documented publicly. If `list-ports` shows nothing, install
-  the chip vendor's macOS driver (WCH CH34x is built into recent macOS).
+  the chip vendor's driver (WCH CH34x is built into recent macOS; on Windows, install WCH's CH341SER
+  driver if Device Manager shows an unknown USB device).
 - After `assign-id`, power-cycle and re-run `diagnose` to confirm the ID persisted in EEPROM.

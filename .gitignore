@@ -1,9 +1,29 @@
+# Python / uv
 .venv/
 __pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tool caches
 .pytest_cache/
-reports/*.json
-reports/*.csv
-reports/*.html
-reports/*.log
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Generated run output (diagnose / monitor / verify-motion / gui sessions)
+reports/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS junk
 .DS_Store
+._*
+__MACOSX/
+Thumbs.db
+desktop.ini
