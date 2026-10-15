@@ -74,14 +74,14 @@ def _sample(bus: SafeBus, servo_id: int, t0: float) -> Sample | None:
     r = read_status(bus, servo_id)
     if r is None:
         return None
-    return Sample(round(time.monotonic() - t0, 4), r.position, r.load_pct, r.torque, r.goal, r.status)
+    return Sample(round(time.perf_counter() - t0, 4), r.position, r.load_pct, r.torque, r.goal, r.status)
 
 
 def _watch(bus: SafeBus, servo_id: int, seconds: float, until: Callable[[Sample], bool] | None = None,
            interval: float = 0.005, t0: float | None = None) -> list[Sample]:
-    t0 = time.monotonic() if t0 is None else t0
+    t0 = time.perf_counter() if t0 is None else t0
     samples: list[Sample] = []
-    while time.monotonic() - t0 < seconds:
+    while time.perf_counter() - t0 < seconds:
         s = _sample(bus, servo_id, t0)
         if s is not None:
             samples.append(s)
@@ -329,7 +329,7 @@ def run_verify_motion(
                 for register in sorted(single_write):
                     for target in (base + steps, base):
                         origin = _require(read_status(bus, servo_id), "test G").position
-                        t_cmd = time.monotonic()
+                        t_cmd = time.perf_counter()
                         bus.write_block(servo_id, REG_GOAL_BLOCK, goal_block(target, register))
                         settled: list[float] = []
 

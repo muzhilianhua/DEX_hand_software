@@ -162,7 +162,7 @@ class FakeBus:
         echo: bool = False,
         idle_noise: bytes = b"",
         seed: int = 1,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self.servos = servos or []
         self.powered = powered

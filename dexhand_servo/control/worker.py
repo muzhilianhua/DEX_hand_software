@@ -141,7 +141,7 @@ class Controller:
         joints: Mapping[int, JointConfig],
         motion: MotionConfig,
         *,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
         sleep: Callable[[float], None] = time.sleep,
         log_path: Path | None = None,
         trace_dir: Path | None = None,
@@ -960,7 +960,7 @@ class Controller:
             self._events.append(event)
         if self._log_path is not None:
             try:
-                with self._log_path.open("a") as handle:
+                with self._log_path.open("a", encoding="utf-8") as handle:
                     handle.write(f"{datetime.now().isoformat(timespec='milliseconds')} {level.upper():5} {text}\n")
             except OSError:
                 pass

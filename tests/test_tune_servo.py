@@ -29,13 +29,13 @@ def test_tune_writes_only_gain_registers_and_keeps_original(rig, tmp_path) -> No
     assert (result.before.p_gain, result.after.p_gain, result.after.min_start) == (15, 25, 20)
     assert fake.writes() == [(3, 48, 0), (3, 21, 25), (3, 24, 20), (3, 48, 1)]
     tune_servo(bus, 3, "index_pip", yes, p_gain=30, directory=tmp_path)
-    original = json.loads((tmp_path / "id3_original.json").read_text())
+    original = json.loads((tmp_path / "id3_original.json").read_text(encoding="utf-8"))
     assert (original["p_gain"], original["min_start"]) == (15, 0), "original is saved once, before the first change"
-    assert len((tmp_path / "changes.jsonl").read_text().splitlines()) == 2
+    assert len((tmp_path / "changes.jsonl").read_text(encoding="utf-8").splitlines()) == 2
 
     restored = restore_servo(bus, 3, "index_pip", yes, directory=tmp_path)
     assert restored.verified and (restored.after.p_gain, restored.after.min_start) == (15, 0)
-    log = [json.loads(line) for line in (tmp_path / "changes.jsonl").read_text().splitlines()]
+    log = [json.loads(line) for line in (tmp_path / "changes.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [entry["action"] for entry in log] == ["tune", "tune", "restore"]
 
 

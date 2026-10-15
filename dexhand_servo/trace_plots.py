@@ -9,7 +9,7 @@ from pathlib import Path
 def write_trace_html(payload: dict, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    path.write_text(_TEMPLATE.replace("__DATA__", data))
+    path.write_text(_TEMPLATE.replace("__DATA__", data), encoding="utf-8")
     return path
 
 

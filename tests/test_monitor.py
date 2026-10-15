@@ -66,13 +66,13 @@ def test_csv_and_html_outputs(open_bus, tmp_path) -> None:
     stats = {i: compute_stats(i, s, 5) for i, s in result.series.items()}
 
     csv_path = write_csv(result, tmp_path / "m.csv")
-    rows = list(csv.DictReader(csv_path.open()))
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
     assert len(rows) == 2 * result.cycles
     assert {r["id"] for r in rows} == {"1", "2"}
 
     payload = monitor_payload(result, stats, 5, csv_path.name)
     payload["servos"][0]["joint"] = "</script><b>x"  # hostile label must not break out of the data block
-    html = write_monitor_html(payload, tmp_path / "m.html").read_text()
+    html = write_monitor_html(payload, tmp_path / "m.html").read_text(encoding="utf-8")
     block = re.search(r'<script type="application/json" id="monitor-data">(.*?)</script>', html, re.DOTALL)
     assert block is not None
     data = json.loads(block.group(1))

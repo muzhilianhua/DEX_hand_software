@@ -80,7 +80,7 @@ class PoseLibrary:
     def load(self) -> dict[str, dict[int, int]]:
         if not self.path.exists():
             return {}
-        data = json.loads(self.path.read_text())
+        data = json.loads(self.path.read_text(encoding="utf-8"))
         _check_header(data, self.joints, self.path.name)
         poses = {}
         for name, raw in data.get("poses", {}).items():
@@ -113,7 +113,7 @@ class PoseLibrary:
             "joints": _joint_map(self.joints),
             "poses": {name: {str(k): v for k, v in sorted(p.items())} for name, p in sorted(poses.items())},
         }
-        self.path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        self.path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def save_recording(
@@ -132,12 +132,12 @@ def save_recording(
         "joints": _joint_map(joints),
         "keyframes": [{"t": kf.t, "positions": {str(k): v for k, v in kf.positions.items()}} for kf in keyframes],
     }
-    path.write_text(json.dumps(data, indent=1, ensure_ascii=False))
+    path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     return path
 
 
 def load_recording(path: Path, joints: Mapping[int, JointConfig]) -> list[Keyframe]:
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     _check_header(data, joints, path.name)
     keyframes = []
     for index, raw in enumerate(data.get("keyframes", [])):

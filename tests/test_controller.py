@@ -267,8 +267,8 @@ def test_worker_thread_lifecycle() -> None:
     ctrl = Controller(bus, {1: JOINTS[1]}, MOTION)
     ctrl.start()
     ctrl.submit(ArmJoints((1,)))
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
+    deadline = time.perf_counter() + 2.0
+    while time.perf_counter() < deadline:
         snap = ctrl.snapshot()
         if snap and snap.joints[1].armed:
             break
@@ -311,10 +311,10 @@ def test_pose_move_streams_at_full_register_and_writes_a_trace(clock, tmp_path) 
     assert speeds == {MOTION.stream_speed_register}
     events = messages(ctrl)
     assert "trace 'grip test'" in events and "arrival spread" in events
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and not list(tmp_path.glob("trace_*.html")):
+    deadline = time.perf_counter() + 2
+    while time.perf_counter() < deadline and not list(tmp_path.glob("trace_*.html")):
         time.sleep(0.02)
-    html = next(tmp_path.glob("trace_*_grip-test.html")).read_text()
+    html = next(tmp_path.glob("trace_*_grip-test.html")).read_text(encoding="utf-8")
     data = json.loads(re.search(r'id="trace-data">(.*?)</script>', html, re.S).group(1))
     arrivals = {j["id"]: j["summary"]["arrival_s"] for j in data["joints"]}
     assert all(a is not None for a in arrivals.values())

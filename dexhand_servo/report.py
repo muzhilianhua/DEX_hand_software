@@ -185,5 +185,5 @@ def diagnose_to_dict(
 def write_json(data: dict[str, Any], directory: Path, prefix: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{prefix}_{datetime.now():%Y%m%d_%H%M%S}.json"
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return path

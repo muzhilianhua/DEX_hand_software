@@ -50,9 +50,9 @@ def test_recording_roundtrip(tmp_path) -> None:
     path = save_recording(tmp_path, "wave 1 / test", keyframes, JOINTS)
     assert path.name == "wave-1-test.json"
     assert load_recording(path, JOINTS) == keyframes
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["keyframes"][1]["positions"]["1"] = 900
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(StorageError, match="outside"):
         load_recording(path, JOINTS)
 

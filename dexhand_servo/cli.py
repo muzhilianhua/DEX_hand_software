@@ -170,7 +170,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
             def on_cycle(result: MonitorResult) -> None:
                 nonlocal last_draw
-                now = time.monotonic()
+                now = time.perf_counter()
                 if now - last_draw >= 0.12:
                     live.update(_monitor_table(result, args.jump_threshold))
                     last_draw = now

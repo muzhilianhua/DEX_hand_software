@@ -93,8 +93,8 @@ def _save_backup(directory: Path, servo_id: int, name: str, values: TuningValues
               **asdict(values)}
     original = _original_path(directory, servo_id)
     if not original.exists():
-        original.write_text(json.dumps(record, indent=2))
-    with (directory / "changes.jsonl").open("a") as log:
+        original.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    with (directory / "changes.jsonl").open("a", encoding="utf-8") as log:
         log.write(json.dumps({**record, "action": action, "change": change}) + "\n")
 
 
@@ -102,7 +102,7 @@ def load_original(directory: Path, servo_id: int) -> TuningValues:
     path = _original_path(directory, servo_id)
     if not path.exists():
         raise TuningAborted(f"no saved original values for ID {servo_id} ({path})")
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return TuningValues(int(data["p_gain"]), int(data["d_gain"]), int(data["min_start"]))
 
 

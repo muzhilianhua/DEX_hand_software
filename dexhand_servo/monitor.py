@@ -183,7 +183,7 @@ def write_csv(result: MonitorResult, path: Path) -> Path:
         ((s.t, servo_id, s) for servo_id, samples in result.series.items() for s in samples),
         key=lambda row: (row[0], row[1]),
     )
-    with path.open("w", newline="") as handle:
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["t_s", "id", "result", "position", "speed", "load_pct", "voltage_v", "temperature_c"])
         for t, servo_id, s in rows:

@@ -112,7 +112,7 @@ def test_report_renders_and_serialises(open_bus, cfg, tmp_path) -> None:
     assert "SUSPECTED_ID_CONFLICT" in text and "HEALTHY_SINGLE" in text
 
     path = write_json(diagnose_to_dict(report, cfg, bus.history, all_traffic=False), tmp_path, "diagnose")
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     assert {s["id"]: s["verdict"] for s in data["servos"]} == {
         1: "HEALTHY_SINGLE",
         2: "HEALTHY_SINGLE",

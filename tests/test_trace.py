@@ -18,5 +18,5 @@ def test_stair_and_stall_metrics(tmp_path) -> None:
     assert arrival.max_goal_step == 2
     assert arrival.stalled_pct == 40.0  # 2 of the 5 advancing cycles had no movement
     assert "max goal step 2" in rec.summary_line()
-    header = write_trace_csv(rec, tmp_path / "t.csv").read_text().splitlines()[0]
+    header = write_trace_csv(rec, tmp_path / "t.csv").read_text(encoding="utf-8").splitlines()[0]
     assert header.endswith("speed_register")

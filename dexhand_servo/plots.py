@@ -44,7 +44,7 @@ def write_monitor_html(payload: dict[str, object], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     # "</" inside the JSON would close the <script> element early.
     data = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    path.write_text(_TEMPLATE.replace("__DATA__", data))
+    path.write_text(_TEMPLATE.replace("__DATA__", data), encoding="utf-8")
     return path
 
 

@@ -125,7 +125,7 @@ class TraceRecorder:
 
 def write_trace_csv(recorder: TraceRecorder, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as handle:
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["t_s", "id", "target", "setpoint", "position", "goal_register", "load_pct", "torque",
                          "speed_register"])
