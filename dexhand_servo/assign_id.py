@@ -4,8 +4,13 @@ Same-ID servos cannot be told apart in software: a WRITE to ID 1 lands on every
 servo that answers to ID 1. So this only writes after the bus has been shown to
 hold exactly one servo at `from_id`, the target ID is free, and the operator has
 typed the target ID back. The only registers ever written are ID (5) and the
-model's EEPROM lock (48 on the SCS0009), enforced by `SafeBus.id_assignment_mode()`.
-The servo model is read from the servo before anything is written.
+model's EEPROM lock (48 on the SCS0009, 55 on the HLS3606), enforced by
+`SafeBus.id_assignment_mode()`. The servo model is read from the servo before anything
+is written.
+
+HLS servos also act on WRITEs addressed to their secondary ID, which PING cannot see. The
+bus census (`diagnostics.take_census`) is taken first; neither the old nor the new ID may
+be another servo's secondary ID.
 """
 
 from __future__ import annotations
@@ -15,14 +20,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import BringupConfig
-from .diagnostics import Verdict, assess_link, dump_registers, read_identity
-from .models import SCS0009, ServoModel
+from .diagnostics import CensusError, Verdict, assess_link, dump_registers, ensure_census, read_identity
+from .models import HLS3606, SCS0009, ServoModel
 from .registers import MAX_SERVO_ID, REG_ID
 from .safe_bus import CommResult, SafeBus, Transaction
 
-# Models assign-id may write to. HLS servos also answer WRITEs addressed to their secondary
-# ID, which needs a bus census before any write is safe.
-WRITABLE_MODELS = (SCS0009,)
+WRITABLE_MODELS = (SCS0009, HLS3606)
 
 TARGET_FREE_PROBES = 3
 
@@ -74,6 +77,17 @@ def assign_id(
         raise AssignmentAborted(f"--to {to_id} outside 1..{MAX_SERVO_ID}")
     if to_id == from_id:
         raise AssignmentAborted("--to equals --from")
+
+    try:
+        census = ensure_census(bus)
+    except CensusError as exc:
+        raise AssignmentAborted(f"bus census failed: {exc}") from exc
+    if shared := sorted(census.get(from_id, frozenset()) - {from_id}):
+        raise AssignmentAborted(f"ID {from_id} is also the secondary ID of HLS servo(s) {shared}; "
+                                "the ID write would rename them too")
+    if shared := sorted(census.get(to_id, frozenset()) - {from_id}):
+        raise AssignmentAborted(f"ID {to_id} is the secondary ID of HLS servo(s) {shared}; WRITEs to the new "
+                                "ID would reach them too")
 
     for _ in range(TARGET_FREE_PROBES):
         probe = bus.ping(to_id)
@@ -129,5 +143,20 @@ def assign_id(
     for name, passed in checks.items():
         result.steps.append(f"verify {name}: {'OK' if passed else 'FAILED'}")
     result.success = all(checks.values())
+    _refresh_census(bus, model, from_id, to_id, result)
     return result
 
+
+def _refresh_census(bus: SafeBus, model: ServoModel, from_id: int, to_id: int, result: AssignmentResult) -> None:
+    """Move the renamed servo in `bus.census`; for an HLS, re-read its secondary ID."""
+    assert bus.census is not None
+    census = {k: v - {from_id} for k, v in bus.census.items()}
+    if model.reg_secondary_id is not None:
+        read = bus.read(to_id, model.reg_secondary_id, 1)
+        if not (read.ok and read.data):
+            bus.census = None  # unknown again: writes stay refused until a new census
+            result.steps.append("read secondary ID: FAILED; bus census cleared")
+            return
+        census[read.data[0]] = census.get(read.data[0], frozenset()) | {to_id}
+        result.steps.append(f"secondary ID (register {model.reg_secondary_id}) reads {read.data[0]}")
+    bus.census = {k: v for k, v in census.items() if v}

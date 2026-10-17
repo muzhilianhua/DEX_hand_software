@@ -37,6 +37,12 @@ def arm_joint(
     if not joint.has_travel_limits:
         return ArmResult(False, "no travel limits configured")
     assert joint.min_position is not None and joint.max_position is not None
+    if bus.census is None:
+        return ArmResult(False, "no bus census, so HLS secondary IDs are unknown (see the startup log)")
+    shared = bus.census.get(servo_id, frozenset()) - {servo_id}
+    if shared:
+        return ArmResult(False, f"ID {servo_id} is also the secondary ID of HLS servo(s) {sorted(shared)}; "
+                                "change their secondary ID (register 7) first")
     reading = read_status(bus, servo_id)
     if reading is None:
         return ArmResult(False, "no clean status reply")

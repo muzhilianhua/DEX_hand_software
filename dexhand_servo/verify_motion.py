@@ -35,6 +35,7 @@ from .control.arming import arm_joint, disarm_joint, read_status
 from .control.policy import REG_GOAL_BLOCK, MotionPolicy, goal_block, limits_from_config
 from .control.snapshot import ServoReading
 from .control.trace import TraceRecorder, TraceRow
+from .diagnostics import CensusError, ensure_census
 from .registers import REG_TORQUE_ENABLE
 from .safe_bus import SafeBus
 
@@ -170,6 +171,12 @@ def run_verify_motion(
     if not joint.has_travel_limits:
         raise VerifyAborted(f"ID {servo_id} has no travel limits in config.py")
     assert joint.min_position is not None and joint.max_position is not None
+    try:
+        census = ensure_census(bus)
+    except CensusError as exc:
+        raise VerifyAborted(f"bus census failed: {exc}") from exc
+    if shared := sorted(census.get(servo_id, frozenset()) - {servo_id}):
+        raise VerifyAborted(f"ID {servo_id} is also the secondary ID of HLS servo(s) {shared}")
     # No per-packet jump limit here: the test moves are single small goals (<= 40 steps) by design.
     policy = MotionPolicy(limits_from_config({servo_id: joint}, motion, step_guard=False), known_ids=[servo_id])
     bus.set_policy(policy)

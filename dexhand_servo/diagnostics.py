@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import statistics
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -17,12 +17,13 @@ from .registers import (
     BAUD_CODES,
     DUMP_END,
     IDENTITY_LEN,
+    MAX_SERVO_ID,
     PRESENT_BLOCK_ADDR,
     PRESENT_BLOCK_LEN,
     REG_ID,
     DecodedValue,
 )
-from .safe_bus import CommResult, SafeBus, Transaction
+from .safe_bus import Census, CommResult, SafeBus, Transaction
 
 ProgressCallback = Callable[[str, int, int], None]
 
@@ -343,6 +344,49 @@ def read_identity(bus: SafeBus, servo_id: int) -> tuple[ServoModel | None, list[
     if not (t.ok and len(t.data) == IDENTITY_LEN):
         return None, None
     return identify(t.data), list(t.data)
+
+
+class CensusError(RuntimeError):
+    """The bus census could not be completed; writes stay refused."""
+
+
+CENSUS_READ_LEN = 8  # registers 0..7: identity plus the HLS secondary ID
+
+
+def take_census(bus: SafeBus, ids: Iterable[int] | None = None, retries: int = 1) -> Census:
+    """Find every HLS secondary ID on the bus and store the result in `bus.census`.
+
+    PINGs every ID (0..253 by default) and reads registers 0..7 of each responder. Fails,
+    leaving `bus.census` unchanged, when a responder cannot be read cleanly or is not a
+    supported model: its secondary IDs would then be unknown. Transactions are not kept
+    in `bus.history`.
+    """
+    secondaries: dict[int, set[int]] = {}
+    keep_history = bus.keep_history
+    bus.keep_history = False
+    try:
+        for servo_id in range(MAX_SERVO_ID + 1) if ids is None else ids:
+            if all(bus.ping(servo_id).result is CommResult.TIMEOUT for _ in range(retries + 1)):
+                continue
+            t = bus.read(servo_id, 0, CENSUS_READ_LEN)
+            if not (t.ok and len(t.data) == CENSUS_READ_LEN):
+                raise CensusError(f"ID {servo_id} answers PING but registers 0..7 do not read cleanly "
+                                  f"({t.result.value}; several servos on one ID?); its secondary ID is unknown")
+            model = identify(t.data)
+            if model is None:
+                raise CensusError(f"ID {servo_id} is an unsupported servo (registers 0..4 = {t.data[:5]}); "
+                                  "whether it answers other IDs is unknown")
+            if model.reg_secondary_id is not None:
+                secondaries.setdefault(t.data[model.reg_secondary_id], set()).add(servo_id)
+    finally:
+        bus.keep_history = keep_history
+    census = {secondary: frozenset(primaries) for secondary, primaries in secondaries.items()}
+    bus.census = census
+    return census
+
+
+def ensure_census(bus: SafeBus) -> Census:
+    return bus.census if bus.census is not None else take_census(bus)
 
 
 @dataclass

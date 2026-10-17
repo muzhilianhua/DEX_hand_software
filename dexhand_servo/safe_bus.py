@@ -15,6 +15,13 @@ temporarily allows single-byte WRITEs to the ID and EEPROM-lock registers and
 nothing else. Motion is only possible under `control.policy.MotionPolicy`,
 which validates every goal against the joint's travel limits. Broadcast is
 refused except as the address of a policy-validated SYNC_WRITE.
+
+HLS servos also act on WRITE / SYNC_WRITE packets addressed to their secondary ID
+(register 7), which PING and READ cannot reveal. `SafeBus.census` maps each secondary
+ID found on the bus to the HLS servos answering to it (`diagnostics.take_census`).
+Until a census is taken, every WRITE / SYNC_WRITE except torque-off is refused; after
+it, a write addressed to another servo's secondary ID is refused. Torque-off is always
+allowed, so an E-stop can never be blocked.
 """
 
 from __future__ import annotations
@@ -46,7 +53,10 @@ from scservo_sdk.scservo_def import (
 )
 
 from .models import SCS0009, ServoModel
-from .registers import MAX_SERVO_ID, REG_ID, SUPPORTED_BAUDRATES
+from .registers import MAX_SERVO_ID, REG_ID, REG_TORQUE_ENABLE, SUPPORTED_BAUDRATES
+
+# Secondary ID -> primary IDs of the HLS servos that also act on WRITEs addressed to it.
+Census = dict[int, frozenset[int]]
 
 
 class UnsafeOperationError(RuntimeError):
@@ -145,6 +155,44 @@ def validate_instruction_packet(packet: Sequence[int], policy: WritePolicy) -> N
         return
 
     raise UnsafeOperationError(f"instruction 0x{instruction:02X} is never sent by this tool")
+
+
+def _write_targets(packet: Sequence[int]) -> tuple[list[int], bool] | None:
+    """(addressed IDs, is torque-off) of a WRITE / SYNC_WRITE; None for other instructions."""
+    instruction = packet[PKT_INSTRUCTION]
+    address = packet[PKT_PARAMETER0]
+    if instruction == INST_WRITE:
+        data = list(packet[PKT_PARAMETER0 + 1 : PKT_PARAMETER0 + 1 + packet[PKT_LENGTH] - 3])
+        return [packet[PKT_ID]], address == REG_TORQUE_ENABLE and data == [0]
+    if instruction == INST_SYNC_WRITE:
+        data_len = packet[PKT_PARAMETER0 + 1]
+        payload = packet[PKT_PARAMETER0 + 2 : PKT_PARAMETER0 + 2 + packet[PKT_LENGTH] - 4]
+        stride = data_len + 1
+        entries = [payload[i : i + stride] for i in range(0, len(payload), stride)]
+        torque_off = address == REG_TORQUE_ENABLE and data_len == 1 and all(list(e[1:]) == [0] for e in entries)
+        return [e[0] for e in entries], torque_off
+    return None
+
+
+def check_census(packet: Sequence[int], census: Census | None) -> None:
+    """Refuse writes that could also reach an HLS servo through its secondary ID."""
+    targets = _write_targets(packet)
+    if targets is None:
+        return
+    ids, torque_off = targets
+    if torque_off:
+        return
+    if census is None:
+        raise UnsafeOperationError(
+            "WRITE refused: no bus census yet, so HLS secondary IDs are unknown; only torque-off may be sent"
+        )
+    for servo_id in ids:
+        others = census.get(servo_id, frozenset()) - {servo_id}
+        if others:
+            raise UnsafeOperationError(
+                f"WRITE to ID {servo_id} refused: it is the secondary ID of HLS servo(s) {sorted(others)}, "
+                "which would act on it too"
+            )
 
 
 def _open_serial(port_name: str, baudrate: int) -> Any:
@@ -284,6 +332,8 @@ class SafeBus:
             serial_factory=serial_factory,
         )
         self._handler = GuardedPacketHandler(self._port, self._validate)
+        # None until `diagnostics.take_census` ran; {} means no HLS servo was found.
+        self.census: Census | None = None
         self.history: list[Transaction] = []
         # Long monitor runs keep their own samples; per-transaction history would grow unbounded.
         self.keep_history = True
@@ -312,6 +362,7 @@ class SafeBus:
 
     def _validate(self, packet: Sequence[int]) -> None:
         validate_instruction_packet(packet, self._policy)
+        check_census(packet, self.census)
 
     def open(self) -> None:
         if not self._port.setBaudRate(self._baudrate):

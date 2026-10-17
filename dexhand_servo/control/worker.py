@@ -31,6 +31,7 @@ from enum import Enum
 from pathlib import Path
 
 from ..config import JointConfig, MotionConfig
+from ..diagnostics import CensusError, ensure_census
 from ..registers import REG_TORQUE_ENABLE
 from ..safe_bus import SafeBus, UnsafeOperationError
 from .arming import arm_joint, disarm_joint, read_status
@@ -264,6 +265,18 @@ class Controller:
         self._emit("info" if confirmed else "error",
                    "startup: torque off confirmed on all joints" if confirmed
                    else "startup: could not confirm torque off on all joints (check power and wiring)")
+        try:
+            census = ensure_census(self.bus)
+        except CensusError as exc:
+            self._emit("error", f"startup: bus census failed, arming is refused until restart: {exc}")
+        else:
+            shared = {i: sorted(census.get(i, frozenset()) - {i}) for i in self.joints}
+            for servo_id, others in shared.items():
+                if others:
+                    self._emit("error", f"startup: joint ID {servo_id} is also the secondary ID of HLS servo(s) "
+                                        f"{others}; it cannot be armed")
+            self._emit("info", "startup: bus census done, "
+                               + (f"HLS secondary IDs {sorted(census)}" if census else "no HLS servo found"))
         return confirmed
 
     def _run(self) -> None:

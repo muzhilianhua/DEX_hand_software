@@ -250,7 +250,7 @@ def cmd_assign_id(args: argparse.Namespace) -> int:
 
 
 def cmd_verify_motion(args: argparse.Namespace) -> int:
-    from .verify_motion import run_verify_motion
+    from .verify_motion import VerifyAborted, run_verify_motion
 
     joint = JOINTS.get(args.id)
     if joint is None:
@@ -273,6 +273,9 @@ def cmd_verify_motion(args: argparse.Namespace) -> int:
             single_write=SINGLE_WRITE_REGISTERS if args.single_write else (),
             single_write_steps=args.single_write_steps,
         )
+    except VerifyAborted as exc:
+        console.print(f"[red bold]Aborted before any motion:[/] {exc}")
+        return 2
     finally:
         bus.close()
     path = write_json(report.to_dict(), args.report_dir, f"verify_motion_id{args.id}")
@@ -434,8 +437,9 @@ def build_parser() -> argparse.ArgumentParser:
     tune = sub.add_parser("tune-servo", help="EEPROM: change P gain / minimum start force of one servo (torque off)")
     _add_link_args(tune)
     tune.add_argument("--id", type=int, required=True, help="servo ID")
-    tune.add_argument("--p-gain", type=int, help="position-loop P gain, register 21 (factory 15, allowed 5..60)")
-    tune.add_argument("--min-start", type=int, help="minimum start force, register 24 (factory 0, allowed 0..100)")
+    tune.add_argument("--p-gain", type=int, help="position-loop P gain, register 21 "
+                      "(SCS0009: factory 15, allowed 5..60; HLS3606: factory 32, allowed 16..64)")
+    tune.add_argument("--min-start", type=int, help="minimum start force, register 24 (allowed 0..100)")
     tune.add_argument("--restore", action="store_true", help="write back the values saved before the first change")
     tune.add_argument("--show", action="store_true", help="only read and print the current values")
     tune.set_defaults(func=cmd_tune_servo)

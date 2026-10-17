@@ -26,8 +26,8 @@ from datetime import datetime
 from pathlib import Path
 
 from .control.storage import DATA_DIR
-from .diagnostics import read_identity
-from .models import MODELS, SCS0009, ServoModel
+from .diagnostics import CensusError, ensure_census, read_identity
+from .models import HLS3606, MODELS, SCS0009, ServoModel
 from .registers import REG_TORQUE_ENABLE
 from .safe_bus import SafeBus, UnsafeOperationError, WritePolicy
 
@@ -38,9 +38,7 @@ P_GAIN_RANGE = SCS0009.p_gain_range
 MIN_START_RANGE = SCS0009.min_start_range  # raw units; the SCSCL table lists 0.1 % per unit -> 0..10 %
 LARGE_P_STEP = 10
 TUNING_DIR = DATA_DIR / "servo_tuning"
-# Models tune-servo may write to. HLS servos also answer WRITEs addressed to their secondary
-# ID, which needs a bus census before any write is safe.
-WRITABLE_MODELS = (SCS0009,)
+WRITABLE_MODELS = (SCS0009, HLS3606)
 
 
 class TuningAborted(RuntimeError):
@@ -66,7 +64,14 @@ TUNING = TuningPolicy()
 
 
 def servo_model(bus: SafeBus, servo_id: int) -> ServoModel:
-    """The servo's model, read from the servo; refuses models tune-servo cannot write safely."""
+    """The servo's model, read from the servo; refuses models tune-servo cannot write safely.
+
+    Also takes the bus census, without which no write is allowed.
+    """
+    try:
+        ensure_census(bus)
+    except CensusError as exc:
+        raise TuningAborted(f"bus census failed: {exc}") from exc
     model, identity = read_identity(bus, servo_id)
     if identity is None:
         raise TuningAborted(f"ID {servo_id} does not reply cleanly")
@@ -218,4 +223,7 @@ def _write_values(
     after = state[0] if state else None
     verified = after == target and unlock.ok and lock.ok
     steps.append(f"read back: {after}" + ("" if verified else "  <- does NOT match the request"))
+    if verified and model.gains_apply_at_power_up:
+        steps.append(f"the {model.label} copies EEPROM gains to its live registers only at power-up: "
+                     "power-cycle the servo before testing")
     return TuneResult(servo_id, before, after, verified, steps, model)

@@ -26,6 +26,7 @@ def gui(qtbot, qapp, tmp_path, monkeypatch):
     monkeypatch.setattr("dexhand_servo.gui.main_window.DATA_DIR", tmp_path)
     fake = simulated_hand()
     bus = SafeBus("simulated", 1_000_000, latency_ms=2, serial_factory=fake.serial_factory)
+    bus.census = {}  # census taken: no HLS secondary IDs
     bus.open()
     controller = Controller(bus, JOINTS, MotionConfig())
     apply_dark_theme(qapp)

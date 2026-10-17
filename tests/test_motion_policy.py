@@ -14,6 +14,7 @@ def rig():
     fake = FakeBus([FakeServo(1, position=500), FakeServo(2, position=500)])
     policy = MotionPolicy(LIMITS)
     bus = SafeBus("/dev/fake", 1_000_000, latency_ms=2, serial_factory=fake.serial_factory, policy=policy)
+    bus.census = {}  # census taken: no HLS secondary IDs
     bus.open()
     yield fake, policy, bus
     bus.close()
@@ -102,6 +103,7 @@ def stepped_rig():
     limits = {i: JointLimits(300, 700, 1000, max_goal_step=10) for i in (1, 2)}
     policy = MotionPolicy(limits)
     bus = SafeBus("/dev/fake", 1_000_000, latency_ms=2, serial_factory=fake.serial_factory, policy=policy)
+    bus.census = {}  # census taken: no HLS secondary IDs
     bus.open()
     return fake, policy, bus
 
@@ -135,6 +137,7 @@ def single_write_rig():
     limits = {i: JointLimits(300, 700, 1000, max_goal_step=10, max_speed=200) for i in (1, 2)}
     policy = MotionPolicy(limits)
     bus = SafeBus("/dev/fake", 1_000_000, latency_ms=2, serial_factory=fake.serial_factory, policy=policy)
+    bus.census = {}  # census taken: no HLS secondary IDs
     bus.open()
     for i in (1, 2):
         policy.add_armed(i)
