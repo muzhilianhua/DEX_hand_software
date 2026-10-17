@@ -349,6 +349,48 @@ def cmd_tune_servo(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_hls_setup(args: argparse.Namespace) -> int:
+    from .hls_setup import HlsSetupAborted, center_offset, restore_setup, show_setup, write_limits_from_config
+
+    joint = JOINTS.get(args.id)
+    bus = _open_bus(args)
+
+    def confirm(summary: str) -> bool:
+        console.print(summary, markup=False, highlight=False)
+        answer = console.input(f"Type the servo ID ({args.id}) to write (anything else aborts): ", markup=False)
+        return answer.strip() == str(args.id)
+
+    try:
+        if args.show:
+            setup = show_setup(bus, args.id)
+            mode = "multi-turn (limits 0/0)" if setup.multi_turn else f"limits {setup.min_angle}/{setup.max_angle}"
+            console.print(f"ID {args.id} ({joint.name if joint else '?'}): {mode}, position offset {setup.offset}, "
+                          f"mode {setup.mode}, torque {'ON' if setup.torque else 'off'}, position {setup.position}")
+            return 0
+        if args.center:
+            result = center_offset(bus, args.id, joint, confirm)
+        elif args.limits_from_config:
+            result = write_limits_from_config(bus, args.id, joint, confirm)
+        else:
+            result = restore_setup(bus, args.id, confirm)
+    except HlsSetupAborted as exc:
+        console.print(f"[red bold]Aborted, nothing written:[/] {exc}")
+        return 2
+    finally:
+        bus.close()
+    for step in result.steps:
+        console.print(f"  {step}", markup=False)
+    if not result.verified:
+        console.print("[red bold]Read-back does not match - check the servo and run --show.[/]")
+        return 1
+    next_step = f"`dexhand-servo diagnose --ids {args.id}`"
+    if args.center and result.after is not None:
+        next_step = (f"`dexhand-servo monitor --ids {args.id}` to measure the travel, and enter it in config.py "
+                     f"JOINTS with model=\"hls3606\", position_offset={result.after.offset}")
+    console.print(f"[green bold]Done.[/] Power-cycle the servo (required), then run {next_step}.")
+    return 0
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     try:
         from .gui.app import run_gui
@@ -443,6 +485,18 @@ def build_parser() -> argparse.ArgumentParser:
     tune.add_argument("--restore", action="store_true", help="write back the values saved before the first change")
     tune.add_argument("--show", action="store_true", help="only read and print the current values")
     tune.set_defaults(func=cmd_tune_servo)
+
+    hls = sub.add_parser("hls-setup", help="EEPROM: single-turn setup of one HLS3606 (offset, angle limits)")
+    _add_link_args(hls)
+    hls.add_argument("--id", type=int, required=True, help="servo ID")
+    action = hls.add_mutually_exclusive_group(required=True)
+    action.add_argument("--show", action="store_true", help="only read and print limits, offset, mode, position")
+    action.add_argument("--center", action="store_true",
+                        help="write the position offset that puts the present position at 2048 (before measuring)")
+    action.add_argument("--limits-from-config", action="store_true",
+                        help="write the joint's config.py travel as the servo's EEPROM angle limits")
+    action.add_argument("--restore", action="store_true", help="write back the values saved before the first change")
+    hls.set_defaults(func=cmd_hls_setup)
 
     gui = sub.add_parser("gui", help="PySide6 control GUI (needs: uv sync --extra gui)")
     gui.add_argument("--port", help="serial device (auto-detected if omitted)")

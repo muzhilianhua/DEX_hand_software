@@ -57,6 +57,10 @@ class FakeServo:
     model: ServoModel = SCS0009
     secondary_id: int = 0  # HLS3606 register 7 (factory default 0)
     angle_limits: tuple[int, int] | None = None  # EEPROM 9/11; default per model
+    # HLS3606 position offset (register 31): reported position changes by offset_sign x the
+    # offset change, immediately when offset_live (the real sign and timing are undocumented).
+    offset_sign: int = -1
+    offset_live: bool = True
     voltage_dv: int = 60
     temperature: int = 28
     baud_code: int = 0
@@ -121,6 +125,10 @@ class FakeServo:
 
     def _set_word(self, addr: int, value: int) -> None:
         self.regs[addr : addr + 2] = self.model.encode_word(value)
+
+    def _offset(self) -> int:
+        raw = self.word(31)
+        return -(raw & 0x7FFF) if raw & 0x8000 else raw
 
     def _speed(self) -> float:
         raw = self.word(REG_SPEED)
@@ -193,7 +201,10 @@ class FakeServo:
         return status_frame(self.current_id, 0)
 
     def _apply_write(self, address: int, data: bytes) -> None:
+        offset_before = self._offset()
         self.regs[address : address + len(data)] = data
+        if self.model is HLS3606 and self.offset_live:
+            self.position += self.offset_sign * (self._offset() - offset_before)
         if self.implicit_torque_on_goal and address <= REG_GOAL < address + len(data):
             self.regs[REG_TORQUE] = 1
 
