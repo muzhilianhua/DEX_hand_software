@@ -462,16 +462,19 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify-motion", help="MOVES one joint: checks firmware behaviour the GUI relies on")
     _add_link_args(verify)
     verify.add_argument("--id", type=int, required=True, help="servo ID to test")
-    verify.add_argument("--amplitude", type=int, default=20, help="test move size in steps (default 20, max 40)",
-                        choices=range(5, 41), metavar="5..40")
-    verify.add_argument("--speed", type=int, default=50, help="goal-speed register value for test moves")
+    verify.add_argument("--amplitude", type=int, default=20, choices=range(5, 41), metavar="5..40",
+                        help="test move size in SCS0009 steps (~0.29 deg; the same angle on HLS servos; "
+                             "default 20)")
+    verify.add_argument("--speed", type=int, default=50,
+                        help="speed of the test moves as an SCS0009 register (~steps/s; the same angular speed "
+                             "on HLS servos)")
     verify.add_argument("--speed-sweep", action="store_true",
                         help=f"measure actual speed at registers {SPEED_SWEEP_REGISTERS} and suggest max_speed")
     verify.add_argument("--single-write", action="store_true",
                         help=f"one goal write per direction at registers {SINGLE_WRITE_REGISTERS}: "
                              "how the servo executes a long move by itself")
     verify.add_argument("--single-write-steps", type=int, default=40, choices=range(10, 61), metavar="10..60",
-                        help="distance of the single-write moves (default 40)")
+                        help="distance of the single-write moves in SCS0009 steps (default 40)")
     verify.add_argument("--overload-test", action="store_true",
                         help="also test the servo's own overload cut-out (operator holds the finger)")
     verify.set_defaults(func=cmd_verify_motion)

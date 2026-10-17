@@ -176,7 +176,12 @@ class BringupConfig:
 
 @dataclass(frozen=True)
 class MotionConfig:
-    """Control loop, motion generation and safety-supervisor settings for the GUI driver."""
+    """Control loop, motion generation and safety-supervisor settings for the GUI driver.
+
+    Step and steps/s values are in SCS0009 units (~0.293 deg per step) and are converted per joint
+    to the joint's own servo (`ServoModel.scs_steps`, `ServoModel.native_speed`); on the SCS0009 the
+    speed register is ~steps/s, so "register" below reads as SCS0009 steps/s for other models.
+    """
 
     cycle_hz: float = 50.0
     # Reply timeout margin on the control bus: one dead servo must not eat the cycle budget.
@@ -232,12 +237,39 @@ class MotionConfig:
     keyframe_tolerance_steps: int = 3
     playback_max_time_scale: float = 1.0
 
+    # HLS3606 only (the SCS0009 has no usable current reading): trip a joint whose phase current
+    # stays at or above this fraction of its goal-current cap (the stall current) for this long.
+    current_trip_frac: float = 0.9
+    current_trip_s: float = 0.2
+
     def stream_speed(self, setpoint_velocity: float) -> int:
-        """Speed register for one streamed goal."""
+        """Speed register for one streamed SCS0009 goal."""
+        return self.stream_register(SCS0009, setpoint_velocity)
+
+    def stream_cap(self, model: ServoModel, max_speed: float | None = None) -> float:
+        """Highest streamed speed in the model's steps/s.
+
+        SCS0009: the register range (its speed register is load-dependent and not a limit anyway).
+        HLS3606: its speed loop does limit speed, so the cap follows the joint's max_speed.
+        """
+        if model.is_hls and max_speed is not None:
+            return max(self.stream_speed_gain * max_speed, model.native_speed(self.stream_speed_floor))
+        return model.native_speed(self.stream_speed_register)
+
+    def stream_register(self, model: ServoModel, setpoint_velocity: float, max_speed: float | None = None) -> int:
+        """Speed register for one streamed goal; `setpoint_velocity` in the model's steps/s."""
+        cap = self.stream_cap(model, max_speed)
         if self.stream_speed_mode == "fixed":
-            return self.stream_speed_register
-        wanted = math.ceil(self.stream_speed_gain * abs(setpoint_velocity))
-        return max(1, min(self.stream_speed_register, max(self.stream_speed_floor, wanted)))
+            return model.speed_register(cap)
+        wanted = max(model.native_speed(self.stream_speed_floor), self.stream_speed_gain * abs(setpoint_velocity))
+        return model.speed_register(min(cap, wanted))
+
+    def arm_register(self, model: ServoModel) -> int:
+        return model.speed_register(model.native_speed(self.arm_speed))
+
+    def speed_cap(self, model: ServoModel, max_speed: float) -> int:
+        """Largest speed register the motion policy accepts for a joint (streaming and arming)."""
+        return max(model.speed_register(self.stream_cap(model, max_speed)), self.arm_register(model))
 
     def max_goal_step(self, joint: JointConfig) -> int:
-        return math.ceil(joint.max_speed * self.goal_step_window_s) + 2
+        return math.ceil(joint.max_speed * self.goal_step_window_s) + joint.servo_model.scs_steps(2)

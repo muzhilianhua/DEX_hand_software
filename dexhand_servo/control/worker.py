@@ -3,7 +3,7 @@
 Cycle (default 50 Hz):
   1. service E-stop            (also checked before every single transaction)
   2. apply queued commands     (arm/disarm, mode, moves, recording, ...)
-  3. read registers 40..66 of every joint (also confirms the previous SYNC_WRITE)
+  3. read the status block of every joint (40..66, HLS 40..70; also confirms the previous SYNC_WRITE)
   4. safety supervisor -> trips (torque off + latched fault)
   5. advance motion            (plan / slider / jog targets -> per-joint RateLimiter)
   6. one SYNC_WRITE of setpoints, only to armed joints whose torque was just read as on
@@ -13,6 +13,10 @@ Cycle (default 50 Hz):
 Reading before writing matters: if a goal write implicitly re-enables torque on
 this firmware, writing first would silently undo a servo's own overload cut-out
 before the supervisor could see it.
+
+Joints may use different servo models: positions and speeds stay in each joint's own
+units, MotionConfig step values (SCS0009 units) are converted per joint, and every
+goal block is encoded by the policy for its joint's model.
 
 The GUI only calls the thread-safe methods: estop, submit, set_target, heartbeat,
 snapshot, drain_events, take_recording, start, stop.
@@ -35,7 +39,7 @@ from ..diagnostics import CensusError, ensure_census
 from ..registers import REG_TORQUE_ENABLE
 from ..safe_bus import SafeBus, UnsafeOperationError
 from .arming import arm_joint, disarm_joint, read_status
-from .policy import GOAL_BLOCK_LEN, REG_GOAL_BLOCK, MotionPolicy, goal_block, limits_from_config
+from .policy import GOAL_BLOCK_LEN, REG_GOAL_BLOCK, MotionPolicy, limits_from_config
 from .snapshot import Event, HandSnapshot, JointState, ServoReading
 from .supervisor import JointInput, Supervisor, SupervisorResult, Trip
 from .trace import TraceRecorder, trace_payload, write_trace_csv
@@ -152,7 +156,9 @@ class Controller:
         self.motion = motion
         if motion.stream_speed_mode not in ("dynamic", "fixed"):
             raise ValueError(f"stream_speed_mode must be 'dynamic' or 'fixed', got {motion.stream_speed_mode!r}")
-        self.policy = MotionPolicy(limits_from_config(self.joints, motion), known_ids=list(self.joints))
+        self._models = {i: joint.servo_model for i, joint in self.joints.items()}
+        self.policy = MotionPolicy(limits_from_config(self.joints, motion), known_ids=list(self.joints),
+                                   models=self._models)
         bus.set_policy(self.policy)
         bus.keep_history = False
         self._clock = clock
@@ -175,7 +181,7 @@ class Controller:
 
         # Worker-thread state.
         self.mode = Mode.SLIDER
-        self._supervisor = Supervisor(motion)
+        self._supervisor = Supervisor(motion, scales={i: m.step_scale for i, m in self._models.items()})
         self._last_result = SupervisorResult()
         self._limiters: dict[int, RateLimiter] = {}
         self._plan: MotionPlan | None = None
@@ -377,7 +383,7 @@ class Controller:
             self.bus.write_byte(servo_id, REG_TORQUE_ENABLE, 0)
         confirmed = True
         for servo_id in ids:
-            reading = read_status(self.bus, servo_id)
+            reading = read_status(self.bus, servo_id, self._models[servo_id])
             self._store_reading(servo_id, reading, self._clock())
             confirmed &= reading is not None and reading.torque == 0
         self._torque_off_confirmed = confirmed
@@ -456,7 +462,7 @@ class Controller:
         joint = self.joints[servo_id]
         assert joint.min_position is not None and joint.max_position is not None
         position = float(result.reading.position)
-        self._limiters[servo_id] = RateLimiter(position, joint.max_speed, self.motion.acceleration,
+        self._limiters[servo_id] = RateLimiter(position, joint.max_speed, self._acceleration(servo_id),
                                                joint.min_position, joint.max_position)
         self._sent[servo_id] = position
         self._emit("info", f"{name} armed, holding {result.reading.position}")
@@ -540,17 +546,23 @@ class Controller:
         if goal is None:
             return
         if command.single_write:
+            registers = {i: self.policy.limits[i].max_speed for i in goal}
+            too_slow = sorted(i for i, register in registers.items() if register is None)
+            if too_slow:
+                self._emit("warn", f"single-write move '{command.label}' refused: max_speed of IDs {too_slow} is "
+                                   "below one speed-register unit")
+                return
             self._stop_motion(f"single-write move '{command.label}'")
             ids = list(goal)
             self._single = SingleWriteMove(command.label, {i: round(goal[i]) for i in ids},
-                                           {i: self.joints[i].max_speed for i in ids})
+                                           {i: registers[i] for i in ids})  # type: ignore[misc]
             self._start_trace(command.label, goal, now, mode="single write")
             self._plan_targets = dict(goal)
             return
         start = {i: self._limiters[i].position for i in goal}
         speeds = {i: float(self.joints[i].max_speed) for i in goal}
         self._plan = plan_move(start, goal, speeds, now, self.motion.min_move_duration_s, command.label,
-                               acceleration=self.motion.acceleration * PLAN_ACCEL_FRACTION)
+                               acceleration={i: self._acceleration(i) * PLAN_ACCEL_FRACTION for i in goal})
         self._start_trace(command.label, goal, now)
         span = self._plan.end - now
         self._emit("info", f"move '{command.label}' started ({len(goal)} joints, {span:.1f} s)")
@@ -560,7 +572,9 @@ class Controller:
         if self.mode is not Mode.JOG or limiter is None:
             self._emit("warn", f"jog {self._name(command.servo_id)} ignored (jog mode and armed joint required)")
             return
-        limiter.set_target(limiter.target + command.delta)
+        # Jog steps are SCS0009 steps: the same angle on every model.
+        delta = self._models[command.servo_id].scs_steps(abs(command.delta))
+        limiter.set_target(limiter.target + (delta if command.delta > 0 else -delta))
 
     def _start_recording(self, now: float) -> None:
         if self.mode is not Mode.TEACH:
@@ -579,7 +593,8 @@ class Controller:
             return
         frames = self._recording
         self._recording = None
-        keyframes = compress_keyframes(frames, self.motion.keyframe_tolerance_steps)
+        keyframes = compress_keyframes(frames, {i: m.scs_steps(self.motion.keyframe_tolerance_steps)
+                                                for i, m in self._models.items()})
         self._finished_recording = keyframes
         outside = sorted({i for kf in keyframes for i, v in kf.positions.items() if not self._within(i, v)})
         note = f"; positions outside travel on IDs {outside} (cannot be saved)" if outside else ""
@@ -611,7 +626,7 @@ class Controller:
         speeds = {i: float(self.joints[i].max_speed) for i in joints}
         try:
             self._plan = plan_playback(command.keyframes, start, speeds, now, scale, self.motion.min_move_duration_s,
-                                       acceleration=self.motion.acceleration * PLAN_ACCEL_FRACTION)
+                                       acceleration={i: self._acceleration(i) * PLAN_ACCEL_FRACTION for i in joints})
         except ValueError as exc:
             self._emit("warn", f"playback refused: {exc}")
             return
@@ -650,8 +665,9 @@ class Controller:
         speeds = {}
         for servo_id, setpoint in setpoints.items():
             limiter = self._limiters.get(servo_id)
-            speeds[servo_id] = self.motion.stream_speed(limiter.velocity if limiter else 0.0)
-            entries[servo_id] = goal_block(round(setpoint), speeds[servo_id])
+            speeds[servo_id] = self.motion.stream_register(self._models[servo_id], limiter.velocity if limiter else 0.0,
+                                                           self.joints[servo_id].max_speed)
+            entries[servo_id] = self.policy.encode_goal(servo_id, round(setpoint), speeds[servo_id])
         try:
             self.bus.sync_write(REG_GOAL_BLOCK, GOAL_BLOCK_LEN, entries)
         except UnsafeOperationError as exc:
@@ -678,7 +694,8 @@ class Controller:
         else:
             fresh = {i: self._fresh.get(i) for i in move.goals}
             far = {i: None if r is None else r.position for i, r in fresh.items()
-                   if r is None or abs(r.position - move.goals[i]) > SINGLE_WRITE_ARRIVAL_STEPS}
+                   if r is None or abs(r.position - move.goals[i])
+                   > self._models[i].scs_steps(SINGLE_WRITE_ARRIVAL_STEPS)}
             if not far:
                 self._end_single_write(move, now)
                 self._emit("info", f"single-write move '{move.label}' finished ({now - move.sent_at:.2f} s, "
@@ -699,7 +716,7 @@ class Controller:
             self._emit("warn", f"single-write move '{move.label}' refused: torque not confirmed on IDs {off}")
             return
         authorized = {i: (move.goals[i], move.speeds[i]) for i in move.goals}
-        entries = {i: goal_block(position, speed) for i, (position, speed) in authorized.items()}
+        entries = {i: self.policy.encode_goal(i, position, speed) for i, (position, speed) in authorized.items()}
         try:
             with self.policy.authorize_goals(authorized):
                 self.bus.sync_write(REG_GOAL_BLOCK, GOAL_BLOCK_LEN, entries)
@@ -708,8 +725,8 @@ class Controller:
             self._latch_global(f"single-write move refused by motion policy: {exc}")
             self._torque_off_all()
             return
-        durations = {i: abs(move.goals[i] - r.position) / move.speeds[i]  # type: ignore[union-attr]
-                     for i, r in readings.items()}
+        durations = {i: abs(move.goals[i] - r.position)  # type: ignore[union-attr]
+                     / self._models[i].steps_per_s(move.speeds[i]) for i, r in readings.items()}
         move.sent_at = now
         move.expected_s = max(durations.values()) + SINGLE_WRITE_LATENCY_S
         move.deadline = now + move.expected_s * SINGLE_WRITE_TIMEOUT_FACTOR + SINGLE_WRITE_TIMEOUT_MARGIN_S
@@ -743,12 +760,12 @@ class Controller:
                 continue  # the supervisor handles a joint that lost torque or communication
             assert joint.min_position is not None and joint.max_position is not None
             hold[servo_id] = min(max(reading.position, joint.min_position), joint.max_position)
-        speeds = {i: min(self.motion.arm_speed, self.joints[i].max_speed) for i in hold}
+        speeds = {i: min(self.motion.arm_register(self._models[i]), move.speeds[i]) for i in hold}
         if hold:
             try:
                 with self.policy.authorize_goals({i: (hold[i], speeds[i]) for i in hold}):
                     self.bus.sync_write(REG_GOAL_BLOCK, GOAL_BLOCK_LEN,
-                                        {i: goal_block(hold[i], speeds[i]) for i in hold})
+                                        {i: self.policy.encode_goal(i, hold[i], speeds[i]) for i in hold})
             except UnsafeOperationError as exc:
                 self._latch_global(f"single-write hold refused by motion policy: {exc}")
                 self._torque_off_all()
@@ -781,7 +798,7 @@ class Controller:
         for servo_id in self.joints:
             if self._estop.is_set():
                 return
-            reading = read_status(self.bus, servo_id)
+            reading = read_status(self.bus, servo_id, self._models[servo_id])
             self._fresh[servo_id] = reading
             self._store_reading(servo_id, reading, self._clock())
 
@@ -797,6 +814,7 @@ class Controller:
                 armed=servo_id in self.policy.armed,
                 sent_setpoint=self._sent.get(servo_id) if servo_id in self.policy.armed else None,
                 free_running=servo_id in free,
+                current_cap_ma=self._current_cap_ma(servo_id),
             )
             for servo_id in self.joints
         }
@@ -873,6 +891,7 @@ class Controller:
                 setpoint=self._sent.get(servo_id),
                 fault=self._joint_faults.get(servo_id),
                 warnings=tuple(warnings.get(servo_id, ())),
+                model=self._models[servo_id],
             )
         snapshot = HandSnapshot(
             time=now,
@@ -902,7 +921,9 @@ class Controller:
         self._plan_targets = {}
         self._trace_mode = mode or self.motion.stream_speed_mode
         names = {i: self.joints[i].name for i in goals}
-        self._trace = TraceRecorder(label, now, {i: float(v) for i, v in goals.items()}, names)
+        tolerances = {i: float(self._models[i].scs_steps(3)) for i in goals}
+        self._trace = TraceRecorder(label, now, {i: float(v) for i, v in goals.items()}, names,
+                                    tolerances=tolerances)
 
     def _trace_cycle(self, now: float) -> None:
         trace = self._trace
@@ -954,6 +975,15 @@ class Controller:
             self._busy_streak = 0
 
     # ------------------------------------------------------------------ helpers
+
+    def _acceleration(self, servo_id: int) -> float:
+        """MotionConfig.acceleration (SCS0009 steps/s^2) in the joint's own steps/s^2."""
+        return self.motion.acceleration * self._models[servo_id].step_scale
+
+    def _current_cap_ma(self, servo_id: int) -> float | None:
+        cap = self.policy.current_cap(servo_id)
+        per_unit = self._models[servo_id].current_ma_per_unit
+        return None if cap is None or per_unit is None else cap * per_unit
 
     def _within(self, servo_id: int, value: float) -> bool:
         joint = self.joints.get(servo_id)

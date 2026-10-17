@@ -139,3 +139,32 @@ def test_pose_page_single_write_option(gui, qtbot) -> None:
     assert "single-write move 'center' sent: 1 joints" in window.log.toPlainText()
     qtbot.waitUntil(lambda: abs(fake.servo(1).position - center) <= 1, timeout=3000)  # streaming holds the goal
     assert not controller.snapshot().faults
+
+
+def test_hls_joint_panel_shows_its_own_units(qtbot, qapp, tmp_path, monkeypatch) -> None:
+    from dexhand_servo.config import JointConfig
+    from dexhand_servo.diagnostics import take_census
+
+    joints = dict(JOINTS)
+    joints[6] = JointConfig("thumb_mcp_rot", 1800, 2300, max_speed=500, model="hls3606")
+    monkeypatch.setattr("dexhand_servo.sim.JOINTS", joints)
+    monkeypatch.setattr("dexhand_servo.gui.main_window.DATA_DIR", tmp_path)
+    fake = simulated_hand()
+    bus = SafeBus("simulated", 1_000_000, latency_ms=2, serial_factory=fake.serial_factory)
+    bus.open()
+    take_census(bus, ids=range(12))
+    controller = Controller(bus, joints, MotionConfig())
+    window = MainWindow(controller, poll_ms=20)
+    qtbot.addWidget(window)
+    controller.start()
+    try:
+        qtbot.mouseClick(window.panels[6].torque_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(lambda: armed(controller, 6) and window.panels[6]._armed, timeout=3000)
+        panel = window.panels[6]
+        position = controller.snapshot().joints[6].reading.position
+        assert 1800 <= position <= 2300
+        assert "HLS3606 steps" in panel.travel.text()
+        assert f"({position * 360 / 4096:.1f}°)" in panel.values["pos"].text()
+        assert "mA" in panel.values["load"].text() and "mA" not in window.panels[1].values["load"].text()
+    finally:
+        controller.stop()
