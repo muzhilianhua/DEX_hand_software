@@ -56,3 +56,12 @@ def test_rejects_invalid_ids(open_bus, cfg, from_id: int, to_id: int) -> None:
     with pytest.raises(AssignmentAborted):
         assign_id(open_bus(fake), from_id, to_id, cfg, always(True))
     assert fake.received == []
+
+
+def test_refuses_servo_that_is_not_writable_model(open_bus, cfg) -> None:
+    servo = FakeServo(1)
+    servo.regs[2], servo.regs[3] = 0, 10  # identifies as HLS3606
+    fake = FakeBus([servo])
+    with pytest.raises(AssignmentAborted, match="HLS3606"):
+        assign_id(open_bus(fake), 1, 3, cfg, always(True))
+    assert fake.writes() == []

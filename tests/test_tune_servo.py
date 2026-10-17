@@ -61,3 +61,40 @@ def test_packet_policy_limits_registers_and_values(rig) -> None:
                 bus.write_byte(3, address, value)
     assert fake.writes() == []
     assert bus.policy.name == "read-only"
+
+
+def _as_hls_identity(servo) -> None:
+    servo.regs[2], servo.regs[3] = 0, 10  # END=0, servo major version 10: identifies as HLS3606
+
+
+def test_refuses_servo_that_is_not_writable_model(rig, tmp_path) -> None:
+    fake, bus = rig
+    _as_hls_identity(fake.servo(3))
+    with pytest.raises(TuningAborted, match="HLS3606"):
+        tune_servo(bus, 3, "x", yes, p_gain=20, directory=tmp_path)
+    fake.servo(3).regs[2] = 7  # neither model
+    with pytest.raises(TuningAborted, match="unsupported"):
+        tune_servo(bus, 3, "x", yes, p_gain=20, directory=tmp_path)
+    assert fake.writes() == []
+
+
+def test_backup_records_model_and_restore_refuses_other_model(rig, tmp_path) -> None:
+    fake, bus = rig
+    tune_servo(bus, 3, "x", yes, p_gain=20, directory=tmp_path)
+    original = json.loads((tmp_path / "id3_original.json").read_text(encoding="utf-8"))
+    assert original["model"] == "scs0009"
+    original["model"] = "hls3606"  # as if the servo at ID 3 had been an HLS when tuned
+    (tmp_path / "id3_original.json").write_text(json.dumps(original), encoding="utf-8")
+    writes_before = len(fake.writes())
+    with pytest.raises(TuningAborted, match="do not apply"):
+        restore_servo(bus, 3, "x", yes, directory=tmp_path)
+    assert len(fake.writes()) == writes_before
+
+
+def test_policy_is_bound_to_one_servo(rig) -> None:
+    from dexhand_servo.tune_servo import TuningPolicy
+
+    fake, bus = rig
+    with bus.use_policy(TuningPolicy(servo_id=3)), pytest.raises(UnsafeOperationError, match="bound"):
+        bus.write_byte(4, 21, 20)
+    assert fake.writes() == []

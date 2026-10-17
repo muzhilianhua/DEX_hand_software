@@ -45,7 +45,8 @@ from scservo_sdk.scservo_def import (
     INST_WRITE,
 )
 
-from .registers import MAX_SERVO_ID, REG_ID, REG_LOCK, SUPPORTED_BAUDRATES
+from .models import SCS0009, ServoModel
+from .registers import MAX_SERVO_ID, REG_ID, SUPPORTED_BAUDRATES
 
 
 class UnsafeOperationError(RuntimeError):
@@ -56,21 +57,35 @@ class WritePolicy:
     """Decides which WRITE / SYNC_WRITE packets may reach the wire. PING/READ are always allowed.
 
     The base class allows single-byte WRITEs to `allowed_write_addresses` only and no SYNC_WRITE.
+    `lock_address` is the EEPROM lock of the servo model the policy was built for (its value
+    must be 0 or 1); `servo_id`, when given, binds the policy to that one servo.
     """
 
-    def __init__(self, name: str, allowed_write_addresses: frozenset[int] = frozenset()) -> None:
+    def __init__(
+        self,
+        name: str,
+        allowed_write_addresses: frozenset[int] = frozenset(),
+        lock_address: int = SCS0009.reg_lock,
+        servo_id: int | None = None,
+    ) -> None:
         self.name = name
         self.allowed_write_addresses = allowed_write_addresses
+        self.lock_address = lock_address
+        self.servo_id = servo_id
 
     def check_write(self, packet: Sequence[int]) -> None:
         if not self.allowed_write_addresses:
             raise UnsafeOperationError(f"WRITE refused: bus is in {self.name} mode")
+        if self.servo_id is not None and packet[PKT_ID] != self.servo_id:
+            raise UnsafeOperationError(
+                f"WRITE to ID {packet[PKT_ID]} refused: {self.name} mode is bound to ID {self.servo_id}"
+            )
         if packet[PKT_LENGTH] != 4:
             raise UnsafeOperationError("only single-byte WRITEs are allowed")
         address, value = packet[PKT_PARAMETER0], packet[PKT_PARAMETER0 + 1]
         if address not in self.allowed_write_addresses:
             raise UnsafeOperationError(f"WRITE to register {address} refused in {self.name} mode")
-        if address == REG_LOCK and value not in (0, 1):
+        if address == self.lock_address and value not in (0, 1):
             raise UnsafeOperationError(f"lock value {value} refused")
         if address == REG_ID and value > MAX_SERVO_ID:
             raise UnsafeOperationError(f"ID value {value} refused")
@@ -83,7 +98,14 @@ class WritePolicy:
 
 
 READ_ONLY = WritePolicy("read-only")
-ID_ASSIGNMENT = WritePolicy("id-assignment", frozenset({REG_ID, REG_LOCK}))
+
+
+def id_assignment_policy(model: ServoModel, servo_id: int | None = None) -> WritePolicy:
+    """Single-byte WRITEs to the ID register and the model's EEPROM lock only."""
+    return WritePolicy("id-assignment", frozenset({REG_ID, model.reg_lock}), model.reg_lock, servo_id)
+
+
+ID_ASSIGNMENT = id_assignment_policy(SCS0009)
 
 
 def validate_instruction_packet(packet: Sequence[int], policy: WritePolicy) -> None:
@@ -181,12 +203,14 @@ class TrafficLoggingPortHandler(PortHandler):
 
 
 class GuardedPacketHandler(scscl):
-    def __init__(self, port_handler: PortHandler, policy_getter: Callable[[], WritePolicy]) -> None:
+    """The SDK handler; only its packet framing and transport are used (byte order is handled by the caller)."""
+
+    def __init__(self, port_handler: PortHandler, validator: Callable[[Sequence[int]], None]) -> None:
         super().__init__(port_handler)
-        self._policy_getter = policy_getter
+        self._validator = validator
 
     def txPacket(self, txpacket: list[int]) -> int:
-        validate_instruction_packet(txpacket, self._policy_getter())
+        self._validator(txpacket)
         return super().txPacket(txpacket)
 
 
@@ -256,10 +280,10 @@ class SafeBus:
         self._port = TrafficLoggingPortHandler(
             port_name,
             latency_ms,
-            tx_validator=lambda packet: validate_instruction_packet(packet, self._policy),
+            tx_validator=self._validate,
             serial_factory=serial_factory,
         )
-        self._handler = GuardedPacketHandler(self._port, lambda: self._policy)
+        self._handler = GuardedPacketHandler(self._port, self._validate)
         self.history: list[Transaction] = []
         # Long monitor runs keep their own samples; per-transaction history would grow unbounded.
         self.keep_history = True
@@ -285,6 +309,9 @@ class SafeBus:
 
     def set_policy(self, policy: WritePolicy) -> None:
         self._policy = policy
+
+    def _validate(self, packet: Sequence[int]) -> None:
+        validate_instruction_packet(packet, self._policy)
 
     def open(self) -> None:
         if not self._port.setBaudRate(self._baudrate):
@@ -333,7 +360,7 @@ class SafeBus:
         return self.write_block(servo_id, address, bytes([value]))
 
     def write_block(self, servo_id: int, address: int, data: bytes) -> Transaction:
-        """WRITE with status reply; `data` is already in wire (big-endian) order."""
+        """WRITE with status reply; `data` is already in wire order (the target model's byte order)."""
 
         def call() -> tuple[list[int], int, int]:
             result, error = self._handler.writeTxRx(servo_id, address, len(data), list(data))
@@ -358,8 +385,8 @@ class SafeBus:
         return self._transact("sync_write", BROADCAST_ID, address, data_len, call)
 
     @contextmanager
-    def id_assignment_mode(self) -> Iterator[None]:
-        with self.use_policy(ID_ASSIGNMENT):
+    def id_assignment_mode(self, model: ServoModel = SCS0009, servo_id: int | None = None) -> Iterator[None]:
+        with self.use_policy(id_assignment_policy(model, servo_id)):
             yield
 
     @contextmanager

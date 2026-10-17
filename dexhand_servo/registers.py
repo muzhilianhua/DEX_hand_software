@@ -27,7 +27,6 @@ REG_ID = 5
 REG_BAUD = 6
 REG_TORQUE_ENABLE = 40
 REG_PRESENT_POSITION = 56
-REG_LOCK = 48  # SCS0009 EEPROM lock (HLS3606: 55, see ServoModel.reg_lock)
 
 PRESENT_BLOCK_ADDR = 56
 PRESENT_BLOCK_LEN = 8  # position, speed, load, voltage, temperature (same layout on both models)

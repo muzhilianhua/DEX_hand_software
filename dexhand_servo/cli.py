@@ -201,11 +201,11 @@ def _confirm_interactively(snapshot: dict[str, Any]) -> bool:
     table.add_column("Field")
     table.add_column("Value")
     for key, value in snapshot.items():
-        if key not in ("from_id", "to_id"):
+        if key not in ("from_id", "to_id", "lock_register"):
             table.add_row(key, str(value))
     console.print(table)
     console.print(
-        "[bold yellow]Only the registers ID (5) and EEPROM lock (48) will be written. "
+        f"[bold yellow]Only the registers ID (5) and EEPROM lock ({snapshot['lock_register']}) will be written. "
         "Make sure exactly ONE un-assigned servo's signal line is connected.[/]"
     )
     answer = console.input(f"Type the new ID [bold]{snapshot['to_id']}[/] to write it (anything else aborts): ")
@@ -298,6 +298,7 @@ def cmd_verify_motion(args: argparse.Namespace) -> int:
 
 
 def cmd_tune_servo(args: argparse.Namespace) -> int:
+    from .diagnostics import read_identity
     from .tune_servo import TUNING_DIR, TuningAborted, load_original, read_tuning, restore_servo, tune_servo
 
     joint = JOINTS.get(args.id)
@@ -316,7 +317,9 @@ def cmd_tune_servo(args: argparse.Namespace) -> int:
                 console.print(f"[red]ID {args.id} does not reply cleanly[/]")
                 return 2
             values, torque = state
-            console.print(f"ID {args.id} ({name}): P gain {values.p_gain}, D gain {values.d_gain}, "
+            model, _ = read_identity(bus, args.id)
+            console.print(f"ID {args.id} ({name}, {model.label if model else 'unsupported model'}): "
+                          f"P gain {values.p_gain}, D gain {values.d_gain}, "
                           f"min start force {values.min_start}, torque {'ON' if torque else 'off'}")
             try:
                 original = load_original(TUNING_DIR, args.id)

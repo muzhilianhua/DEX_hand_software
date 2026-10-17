@@ -4,7 +4,8 @@ Same-ID servos cannot be told apart in software: a WRITE to ID 1 lands on every
 servo that answers to ID 1. So this only writes after the bus has been shown to
 hold exactly one servo at `from_id`, the target ID is free, and the operator has
 typed the target ID back. The only registers ever written are ID (5) and the
-EEPROM lock (48), enforced by `SafeBus.id_assignment_mode()`.
+model's EEPROM lock (48 on the SCS0009), enforced by `SafeBus.id_assignment_mode()`.
+The servo model is read from the servo before anything is written.
 """
 
 from __future__ import annotations
@@ -14,9 +15,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import BringupConfig
-from .diagnostics import Verdict, assess_link, dump_registers
-from .registers import MAX_SERVO_ID, REG_ID, REG_LOCK
+from .diagnostics import Verdict, assess_link, dump_registers, read_identity
+from .models import SCS0009, ServoModel
+from .registers import MAX_SERVO_ID, REG_ID
 from .safe_bus import CommResult, SafeBus, Transaction
+
+# Models assign-id may write to. HLS servos also answer WRITEs addressed to their secondary
+# ID, which needs a bus census before any write is safe.
+WRITABLE_MODELS = (SCS0009,)
 
 TARGET_FREE_PROBES = 3
 
@@ -38,7 +44,21 @@ def read_snapshot(bus: SafeBus, servo_id: int) -> dict[str, Any]:
     dump = dump_registers(bus, servo_id)
     keys = ("model_number", "firmware_major", "firmware_minor", "present_voltage",
             "present_temperature", "present_position", "torque_enable", "baud_code")
-    return {k: dump.decoded[k].value for k in keys if k in dump.decoded}
+    snapshot: dict[str, Any] = {k: dump.decoded[k].value for k in keys if k in dump.decoded}
+    snapshot["model"] = dump.model.label if dump.model else "unknown"
+    return snapshot
+
+
+def writable_model(bus: SafeBus, servo_id: int, command: str) -> ServoModel:
+    """The servo's model, read from the servo; refuses models this command cannot write safely."""
+    model, identity = read_identity(bus, servo_id)
+    if identity is None:
+        raise AssignmentAborted(f"ID {servo_id} does not reply cleanly to a READ of registers 0..4")
+    if model not in WRITABLE_MODELS:
+        found = model.label if model else f"unsupported servo (registers 0..4 = {identity})"
+        raise AssignmentAborted(f"ID {servo_id} is {found}; {command} supports only "
+                                + ", ".join(m.label for m in WRITABLE_MODELS) + " for now")
+    return model
 
 
 def assign_id(
@@ -70,14 +90,15 @@ def assign_id(
             "Connect only one un-assigned servo's signal line."
         )
 
+    model = writable_model(bus, from_id, "assign-id")
     snapshot = read_snapshot(bus, from_id)
-    snapshot.update(from_id=from_id, to_id=to_id)
+    snapshot.update(from_id=from_id, to_id=to_id, lock_register=model.reg_lock)
     if not confirm(snapshot):
         raise AssignmentAborted("operator did not confirm")
 
     result = AssignmentResult(from_id, to_id, success=False)
-    with bus.id_assignment_mode():
-        unlock = bus.write_byte(from_id, REG_LOCK, 0)
+    with bus.id_assignment_mode(model, from_id):
+        unlock = bus.write_byte(from_id, model.reg_lock, 0)
         result.writes.append(unlock)
         if not unlock.ok:
             result.steps.append(f"unlock EEPROM on ID {from_id}: {unlock.result.value}; stopped, ID unchanged")
@@ -90,13 +111,14 @@ def assign_id(
         result.writes.append(change)
         result.steps.append(f"write ID {from_id} -> {to_id}: {change.result.value} (verified below)")
 
-        lock = bus.write_byte(to_id, REG_LOCK, 1)
+    with bus.id_assignment_mode(model, to_id):
+        lock = bus.write_byte(to_id, model.reg_lock, 1)
         result.writes.append(lock)
         result.steps.append(f"re-lock EEPROM on ID {to_id}: {lock.result.value}")
 
     target_ok = all(bus.ping(to_id).ok for _ in range(3))
     id_read = bus.read(to_id, REG_ID, 1)
-    lock_read = bus.read(to_id, REG_LOCK, 1)
+    lock_read = bus.read(to_id, model.reg_lock, 1)
     old_gone = all(bus.ping(from_id).result is CommResult.TIMEOUT for _ in range(3))
     checks = {
         f"PING {to_id} answers": target_ok,
@@ -108,3 +130,4 @@ def assign_id(
         result.steps.append(f"verify {name}: {'OK' if passed else 'FAILED'}")
     result.success = all(checks.values())
     return result
+
