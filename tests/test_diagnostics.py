@@ -148,3 +148,40 @@ def test_joint_travel_checks(open_bus, cfg) -> None:
     assert "[4]" in fleet["joint travel limits"]
     assert "[5]" in fleet["joint map"]
     assert report.exit_code == 1
+
+
+def test_real_hls_servo_is_identified_and_decoded(open_bus, cfg) -> None:
+    from dataclasses import replace
+
+    from hls_fixture import real_hls_servo
+
+    from dexhand_servo.models import HLS3606
+
+    fake = FakeBus([real_hls_servo(1), FakeServo(2, position=500)])
+    report = run_diagnose(open_bus(fake), replace(cfg, joints={}), ids=(1, 2, 3))
+    hls, scs = report.servos
+    assert hls.dump.model is HLS3606 and scs.dump.model is not HLS3606
+    assert hls.dump.decoded["torque_limit"].value == 100.0 and hls.dump.decoded["lock"].value == 1
+    assert hls.assessment.positions and set(hls.assessment.positions) == {4}
+    flagged = {c.name for c in hls.checks if c.severity is not Severity.PASS}
+    assert flagged == {"servo angle limits", "supply voltage"}
+    assert all(c.severity is Severity.PASS for c in scs.checks), scs.checks
+    assert set(fake.instructions) <= READ_ONLY_INSTRUCTIONS
+
+
+def test_model_mismatch_and_secondary_id_collision(open_bus, cfg) -> None:
+    from dataclasses import replace
+
+    from hls_fixture import real_hls_servo
+
+    from dexhand_servo.config import JointConfig
+
+    hls = real_hls_servo(1)
+    hls.regs[7] = 2  # secondary ID equal to the SCS servo's ID
+    fake = FakeBus([hls, FakeServo(2, position=500)])
+    joints = {1: JointConfig("thumb"), 2: JointConfig("index")}
+    report = run_diagnose(open_bus(fake), replace(cfg, joints=joints), ids=(1, 2))
+    model_check = next(c for c in report.servos[0].checks if c.name == "servo model")
+    assert model_check.severity is Severity.FAIL and "scs0009" in model_check.detail
+    fleet = {c.name: c for c in report.fleet_checks}
+    assert fleet["secondary ID"].severity is Severity.FAIL and "ID 2" in fleet["secondary ID"].detail

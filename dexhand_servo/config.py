@@ -10,18 +10,19 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-WCH_USB_VID = 0x1A86
+from .models import MODELS, SCS0009, ServoModel
 
-# SCS0009 raw position range; nominal 300 deg over 1024 steps (~0.293 deg/step).
-POSITION_MIN = 0
-POSITION_MAX = 1023
+WCH_USB_VID = 0x1A86
 
 # Servo supply is ~6 V; diagnose warnings and the motion supervisor share this window.
 SUPPLY_VOLTAGE_WINDOW = (5.5, 6.5)
 
 # Conservative bring-up default; raise per joint after `verify-motion` measured the speed units.
+# Native steps/s of the joint's servo: ~44 deg/s on the SCS0009, ~13 deg/s on the HLS3606.
 DEFAULT_MAX_SPEED = 150  # steps/s for generated trajectories
 MAX_SPEED_LIMIT = 1000  # SCSCL goal-speed register range
+HLS_CURRENT_LIMIT_MA_MAX = round(2047 * 6.5)  # register 28/44 range x 6.5 mA
+HLS_POSITION_OFFSET_MAX = 4095
 
 
 @dataclass(frozen=True)
@@ -36,16 +37,31 @@ class JointConfig:
     `verify-motion --speed-sweep` (the SCS0009 speed register is load-dependent, so the
     servo cannot be trusted to limit speed itself). Streamed goals are additionally
     limited per packet to `max_speed * MotionConfig.goal_step_window_s` steps.
+
+    `model` is the servo type ("scs0009" or "hls3606"); positions, limits and `max_speed`
+    are in that servo's own steps (SCS0009 ~0.293 deg, HLS3606 ~0.088 deg). The model is
+    checked against the servo before every arming. HLS3606 only:
+    - `current_limit_ma` caps the goal current (register 44); None uses the servo's own
+      protection current (register 28).
+    - `position_offset` is the EEPROM position offset (register 31) the travel limits were
+      measured with; arming is refused when the servo reports another offset.
     """
 
     name: str
     min_position: int | None = None
     max_position: int | None = None
     max_speed: int = DEFAULT_MAX_SPEED
+    model: str = SCS0009.key
+    current_limit_ma: int | None = None
+    position_offset: int = 0
 
     @property
     def has_travel_limits(self) -> bool:
         return self.min_position is not None and self.max_position is not None
+
+    @property
+    def servo_model(self) -> ServoModel:
+        return MODELS[self.model]
 
 
 # --------------------------------------------------------------------------- edit here
@@ -91,8 +107,24 @@ def validate_joints(joints: dict[int, JointConfig]) -> list[str]:
             if joint.name in names:
                 problems.append(f"{where}: name '{joint.name}' already used by ID {names[joint.name]}")
             names[joint.name] = servo_id
-        if not (isinstance(joint.max_speed, int) and 1 <= joint.max_speed <= MAX_SPEED_LIMIT):
-            problems.append(f"{where}: max_speed must be an integer within 1..{MAX_SPEED_LIMIT}")
+        model = MODELS.get(joint.model)
+        if model is None:
+            problems.append(f"{where}: unknown model '{joint.model}' (known: {', '.join(MODELS)})")
+            continue
+        speed_limit = math.floor(model.steps_per_s(model.max_speed_register))
+        if not (isinstance(joint.max_speed, int) and 1 <= joint.max_speed <= speed_limit):
+            problems.append(f"{where}: max_speed must be an integer within 1..{speed_limit} ({model.label} steps/s)")
+        if model.is_hls:
+            limit = joint.current_limit_ma
+            if limit is not None and not (isinstance(limit, int) and 7 <= limit <= HLS_CURRENT_LIMIT_MA_MAX):
+                problems.append(f"{where}: current_limit_ma must be None or an integer within "
+                                f"7..{HLS_CURRENT_LIMIT_MA_MAX}")
+            offset = joint.position_offset
+            if not (isinstance(offset, int) and abs(offset) <= HLS_POSITION_OFFSET_MAX):
+                problems.append(f"{where}: position_offset must be an integer within "
+                                f"-{HLS_POSITION_OFFSET_MAX}..{HLS_POSITION_OFFSET_MAX}")
+        elif joint.current_limit_ma is not None or joint.position_offset != 0:
+            problems.append(f"{where}: current_limit_ma / position_offset apply to HLS servos only")
         lo, hi = joint.min_position, joint.max_position
         if (lo is None) != (hi is None):
             problems.append(f"{where}: set both min_position and max_position, or neither")
@@ -102,9 +134,10 @@ def validate_joints(joints: dict[int, JointConfig]) -> list[str]:
         if not all(isinstance(v, int) and not isinstance(v, bool) for v in (lo, hi)):
             problems.append(f"{where}: limits must be integers (raw steps)")
             continue
-        if not POSITION_MIN <= lo < hi <= POSITION_MAX:
+        if not model.position_min <= lo < hi <= model.position_max:
             problems.append(
-                f"{where}: need {POSITION_MIN} <= min_position < max_position <= {POSITION_MAX}, got {lo}..{hi}"
+                f"{where}: need {model.position_min} <= min_position < max_position <= {model.position_max} "
+                f"({model.label}), got {lo}..{hi}"
             )
     return problems
 

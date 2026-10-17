@@ -140,7 +140,7 @@ def _monitor_table(result: MonitorResult, jump_threshold: int) -> Table:
                    "V", "Fail", "Trace (last 40)"):
         table.add_column(column, no_wrap=True)
     for servo_id, samples in result.series.items():
-        st = compute_stats(servo_id, samples, jump_threshold)
+        st = compute_stats(servo_id, samples, jump_threshold, result.models.get(servo_id))
         trace = [s.position for s in samples[-40:] if s.position is not None]
         spread = "-" if st.position_spread is None else f"{st.position_spread} ({st.spread_deg} deg)"
         volts = "-" if st.voltage_min is None else f"{st.voltage_min:.1f}-{st.voltage_max:.1f}"
@@ -180,7 +180,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     finally:
         bus.close()
 
-    stats = {servo_id: compute_stats(servo_id, samples, args.jump_threshold)
+    stats = {servo_id: compute_stats(servo_id, samples, args.jump_threshold, result.models.get(servo_id))
              for servo_id, samples in result.series.items()}
     if result.overruns:
         console.print(f"[yellow]Requested {args.rate} Hz but achieved {result.achieved_rate_hz:.1f} Hz "
@@ -400,7 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--duration", type=non_negative_float, default=10.0,
                          help="seconds to run; 0 = until Ctrl-C (default 10)")
     monitor.add_argument("--jump-threshold", type=int, default=5,
-                         help="count sample-to-sample changes larger than this many steps (default 5)")
+                         help="count sample-to-sample changes larger than this many SCS0009 steps "
+                              "(~0.29 deg; scaled to the same angle on HLS servos; default 5)")
     monitor.add_argument("--no-report", action="store_true", help="skip writing CSV/HTML")
     monitor.set_defaults(func=cmd_monitor)
 
