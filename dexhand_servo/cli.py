@@ -87,11 +87,11 @@ def cmd_list_ports(_: argparse.Namespace) -> int:
         console.print("[yellow]No USB serial ports found.[/]")
         return 2
     table = Table(title="USB serial ports")
-    for column in ("Device", "Description", "VID:PID", "WCH"):
+    for column in ("Device", "Description", "VID:PID", "Kind"):
         table.add_column(column)
     for c in candidates:
         vid_pid = f"{c.vid:04X}:{c.pid:04X}" if c.vid is not None and c.pid is not None else "-"
-        table.add_row(c.device, c.description, vid_pid, "yes" if c.is_wch else "")
+        table.add_row(c.device, c.description, vid_pid, c.kind.value)
     console.print(table)
     return 0
 

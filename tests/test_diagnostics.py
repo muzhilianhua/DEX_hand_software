@@ -3,10 +3,20 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
 from fake_bus import FakeBus, FakeServo
 from rich.console import Console
 
-from dexhand_servo.diagnostics import Severity, Verdict, run_diagnose
+from dexhand_servo.diagnostics import (
+    PortCandidate,
+    PortKind,
+    PortSelectionError,
+    Severity,
+    Verdict,
+    port_kind,
+    run_diagnose,
+    select_port,
+)
 from dexhand_servo.report import diagnose_to_dict, render_diagnose, write_json
 
 READ_ONLY_INSTRUCTIONS = {0x01, 0x02}
@@ -185,3 +195,38 @@ def test_model_mismatch_and_secondary_id_collision(open_bus, cfg) -> None:
     assert model_check.severity is Severity.FAIL and "scs0009" in model_check.detail
     fleet = {c.name: c for c in report.fleet_checks}
     assert fleet["secondary ID"].severity is Severity.FAIL and "ID 2" in fleet["secondary ID"].detail
+
+
+def _port(device: str, kind: PortKind) -> PortCandidate:
+    return PortCandidate(device, "", 0, 0, kind)
+
+
+BRIDGE = _port("/dev/cu.usbmodem1101", PortKind.BRIDGE)
+URT2 = _port("/dev/cu.wchusbserial110", PortKind.WCH)
+OTHER = _port("/dev/cu.usbmodem9", PortKind.OTHER)
+
+
+def test_port_kind_needs_the_bridge_product_name() -> None:
+    assert port_kind(0x303A, "Dexhand URT Bridge") is PortKind.BRIDGE
+    assert port_kind(0x303A, "USB JTAG/serial debug unit") is PortKind.OTHER  # some other ESP32
+    assert port_kind(0x1A86, "USB Single Serial") is PortKind.WCH
+
+
+@pytest.mark.parametrize("candidates, expected", [
+    ([BRIDGE, OTHER], BRIDGE.device),
+    ([URT2, OTHER], URT2.device),
+    ([OTHER], OTHER.device),
+])
+def test_select_port_picks_the_only_adapter(candidates, expected) -> None:
+    assert select_port(candidates, None) == expected
+
+
+def test_select_port_never_guesses_between_bridge_and_urt2() -> None:
+    with pytest.raises(PortSelectionError, match="ESP32 bridge.*URT-2 USB"):
+        select_port([BRIDGE, URT2], None)
+    assert select_port([BRIDGE, URT2], URT2.device) == URT2.device
+
+
+def test_select_port_without_ports() -> None:
+    with pytest.raises(PortSelectionError, match="No USB serial adapter"):
+        select_port([], None)

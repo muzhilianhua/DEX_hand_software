@@ -11,7 +11,7 @@ from typing import Any
 
 from serial.tools import list_ports
 
-from .config import WCH_USB_VID, BringupConfig
+from .config import BRIDGE_PRODUCT, ESP32_USB_VID, WCH_USB_VID, BringupConfig
 from .models import SCS0009, ServoModel, identify
 from .registers import (
     BAUD_CODES,
@@ -59,17 +59,35 @@ class Check:
 # ---------------------------------------------------------------- S0: port discovery
 
 
+class PortKind(str, Enum):
+    BRIDGE = "ESP32 bridge"  # firmware/urt_bridge in front of the URT-2
+    WCH = "URT-2 USB"  # the URT-2's own USB-serial chip (also the DevKit's "UART" port on some boards)
+    OTHER = "other"
+
+
 @dataclass
 class PortCandidate:
     device: str
     description: str
     vid: int | None
     pid: int | None
-    is_wch: bool
+    kind: PortKind
+
+    @property
+    def is_adapter(self) -> bool:
+        return self.kind is not PortKind.OTHER
 
 
 class PortSelectionError(RuntimeError):
     pass
+
+
+def port_kind(vid: int | None, product: str) -> PortKind:
+    if vid == ESP32_USB_VID and BRIDGE_PRODUCT in product:
+        return PortKind.BRIDGE
+    if vid == WCH_USB_VID:
+        return PortKind.WCH
+    return PortKind.OTHER
 
 
 def discover_ports() -> list[PortCandidate]:
@@ -84,23 +102,24 @@ def discover_ports() -> list[PortCandidate]:
             description=port.description or "",
             vid=port.vid,
             pid=port.pid,
-            is_wch=port.vid == WCH_USB_VID,
+            kind=port_kind(port.vid, f"{port.product or ''} {port.description or ''}"),
         )
-    return sorted(candidates.values(), key=lambda c: (not c.is_wch, c.device))
+    return sorted(candidates.values(), key=lambda c: (not c.is_adapter, c.device))
 
 
 def select_port(candidates: list[PortCandidate], explicit: str | None) -> str:
+    """The only bus adapter (ESP32 bridge or URT-2 USB); never guesses between several."""
     if explicit:
         return explicit
-    pool = [c for c in candidates if c.is_wch] or candidates
+    pool = [c for c in candidates if c.is_adapter] or candidates
     if len(pool) == 1:
         return pool[0].device
     if not pool:
         raise PortSelectionError(
-            "No USB serial adapter found. Check the URT-2 USB cable and that the "
+            "No USB serial adapter found. Check the USB cable (URT-2 or ESP32 bridge) and that the "
             "USB-serial driver is loaded (`dexhand-servo list-ports`)."
         )
-    names = ", ".join(c.device for c in pool)
+    names = ", ".join(f"{c.device} ({c.kind.value})" for c in pool)
     raise PortSelectionError(f"Several candidate ports ({names}); pass --port explicitly.")
 
 

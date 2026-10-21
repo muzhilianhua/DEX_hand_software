@@ -12,7 +12,10 @@ from dataclasses import dataclass, field
 
 from .models import MODELS, SCS0009, HLS3606, ServoModel
 
-WCH_USB_VID = 0x1A86
+WCH_USB_VID = 0x1A86  # the URT-2's own USB-serial chip
+# ESP32-S3 bridge (firmware/urt_bridge): Espressif VID plus the USB product name its firmware sets.
+ESP32_USB_VID = 0x303A
+BRIDGE_PRODUCT = "Dexhand URT Bridge"
 
 # Servo supply is ~6 V; diagnose warnings and the motion supervisor share this window.
 SUPPLY_VOLTAGE_WINDOW = (5.5, 6.5)
