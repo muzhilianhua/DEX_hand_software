@@ -364,9 +364,18 @@ Compare them between `--rate 50/100` and `--stream-speed dynamic/fixed`.
 
 On startup every joint is switched to torque off. Nothing moves until you arm a joint.
 
+**Incomplete servo sets.** Joints that do not reply at startup are shown as **OFFLINE**: they are
+not polled, do not block the other joints, are left out of the torque-off confirmation and cannot
+be armed, so a single servo can be debugged on its own. After connecting more servos, press
+**Rescan bus** (enabled only while no joint is armed): it reads every configured joint again,
+switches newly found ones to torque off and redoes the HLS secondary-ID census. A joint that
+stops replying *after* it was online is still treated as a communication loss (arming blocked;
+all joints torque off if any is armed). Arming still needs a `JOINTS` entry with travel limits and
+a matching servo model.
+
 | Area | Content |
 |---|---|
-| Top bar | link and loop rate, mode selector, Arm all / Torque off all / Stop motion / Reset faults, **E-STOP** |
+| Top bar | link and loop rate (and how many joints are offline), mode selector, Arm all / Torque off all / Stop motion / Reset faults / Rescan bus, **E-STOP** |
 | Banner | latched E-stop or fault, lost communication, unconfirmed torque-off ("cut servo power"), moves in progress |
 | Joint panels (4×2) | arm/disarm button, travel bar (white dot = actual, blue triangle = target), target slider, position (steps/°), target, **load %**, voltage, temperature, comm health, faults and warnings |
 | Mode page | slider · poses · sync move · jog · teach/playback |

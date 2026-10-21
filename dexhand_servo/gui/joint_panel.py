@@ -148,6 +148,10 @@ class JointPanel(QGroupBox):
         self.slider.blockSignals(False)
 
     def update_state(self, state: JointState, slider_mode: bool) -> None:
+        if not state.online:
+            self._show_offline(state)
+            return
+        self.torque_button.setEnabled(True)
         r = state.reading
         armed = state.armed
         self._armed = armed
@@ -196,3 +200,18 @@ class JointPanel(QGroupBox):
             notes.append("Outside configured travel: move it back by hand before arming")
         notes.extend(state.warnings)
         self.note.setText("\n".join(f"▲ {n}" for n in notes))
+
+    def _show_offline(self, state: JointState) -> None:
+        self._armed = False
+        self._slider_enabled = False
+        self.slider.setEnabled(False)
+        self.torque_button.setEnabled(False)
+        self.torque_button.setText("Offline")
+        self.torque_button.setStyleSheet("")
+        self.chip.setText("◌ OFFLINE")
+        self.chip.setStyleSheet(f"color: {theme.TEXT_MUTED}; font-weight: 700;")
+        self.bar.set_values(None, None)
+        self.travel.setText(f"travel {self.lo}–{self.hi} · {state.model.label} steps")
+        for value in self.values.values():
+            value.setText("-")
+        self.note.setText("◌ No reply at startup - connect the servo and press Rescan bus")

@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .models import MODELS, SCS0009, ServoModel
+from .models import MODELS, SCS0009, HLS3606, ServoModel
 
 WCH_USB_VID = 0x1A86
 
@@ -75,7 +75,7 @@ class JointConfig:
 # 运动	flex 屈伸、abduct 外展、adduct 内收、opp 对掌、rot 旋转
 # 方向	FE 屈伸、AA 外展/内收、OPP 对掌、ROT 旋转
 JOINTS: dict[int, JointConfig] = {
-    1: JointConfig("triple_pip", min_position=350, max_position=730,),
+    1: JointConfig("triple_pip", min_position=350, max_position=2000, model=HLS3606.key, max_speed=900),
     2: JointConfig("triple_dip", min_position=600, max_position=890),
     # 3, 4, 7: speed-sweep result 10 was force-limited creep, not a speed; default until mechanics are fixed
     3: JointConfig("index_pip", min_position=250, max_position=600),
@@ -86,7 +86,7 @@ JOINTS: dict[int, JointConfig] = {
     8: JointConfig("thumb_ip", min_position=20, max_position=280),
     # 9: not backdrivable, so not measured with `monitor`. Max = servo EEPROM max angle (1003; it rested
     # at 1006), min = 400 below; narrow/widen by trial
-    9: JointConfig("thumb_cmc", min_position=503, max_position=1003)
+    9: JointConfig("thumb_cmc", min_position=503, max_position=1003, max_speed=800)
 }
 # ---------------------------------------------------------------------------------------
 

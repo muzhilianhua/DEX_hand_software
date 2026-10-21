@@ -75,6 +75,7 @@ class JointState:
     fault: str | None  # latched fault for this joint
     warnings: tuple[str, ...] = ()
     model: ServoModel = SCS0009
+    online: bool = True  # False: no reply at startup / last rescan; not polled, not armable
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class HandSnapshot:
     cycle_busy_ms: float = 0.0  # smoothed time spent inside one control cycle
     cycle_budget_ms: float = 20.0
     notes: tuple[str, ...] = field(default_factory=tuple)
+    offline: tuple[int, ...] = ()  # joints that did not reply at startup / last rescan
 
 
 @dataclass(frozen=True)
