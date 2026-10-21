@@ -2,7 +2,8 @@
 
 Bring-up, diagnostics and a PySide6 control GUI for the 8-DoF Dexhand prototype: Feetech
 SCS0009 and HLS3606 servos, mixed per servo ID on one TTL half-duplex bus, driven from macOS or
-Windows through a Feetech FE-URT-2 over USB. See *Servo models* for what differs between the two.
+Windows through a Feetech FE-URT-2 over USB, either directly or through an ESP32-S3 bridge (see
+*ESP32-S3 bridge*). See *Servo models* for what differs between the two servo models.
 
 The hand has **no mechanical end stops**. Every packet is checked twice against the active write
 policy, in [safe_bus.py](dexhand_servo/safe_bus.py):
@@ -38,7 +39,8 @@ The motion policy allows only:
   Speed 0 means "maximum speed" on SCS servos ("stop" on the HLS) and is always refused.
 
 Everything else is refused: EEPROM writes, the lock register, REG_WRITE/ACTION, reset, and
-broadcast WRITE. A SYNC_WRITE with one bad entry is refused as a whole.
+broadcast WRITE. A SYNC_WRITE with one bad entry is refused as a whole. (The ESP32 bridge's link
+watchdog sends one packet of its own, a broadcast torque off; see *ESP32-S3 bridge*.)
 
 **Bus census.** An HLS3606 also acts on WRITE / SYNC_WRITE packets addressed to its *secondary* ID
 (register 7; factory default 0), which PING and READ cannot reveal. Before anything is written,
@@ -101,6 +103,55 @@ Serial ports: macOS uses `/dev/cu.*` (the tool maps `/dev/tty.*` to `cu.*` for y
   only thing preventing a joint from being driven past its mechanical range. Review changes to it
   as carefully as code changes, and say in the commit message how the limits were measured.
 
+## ESP32-S3 bridge
+
+Instead of the URT-2's own USB port, the PC can reach the bus through an ESP32-S3-DevKitC-1
+(N32R16V) running [firmware/urt_bridge](firmware/urt_bridge):
+
+```
+PC --USB (DevKit "USB" port)--> ESP32-S3 --UART1--> URT-2 TTL input --> servo bus
+```
+
+The bridge is transparent: bytes pass unchanged both ways, and the UART follows the baud rate the
+PC sets (only the rates in `SUPPORTED_BAUDRATES`), so every command, the guard, the census and the
+`diagnose` baud sweep work as before. `list-ports` shows it as `ESP32 bridge`. When both the bridge
+and the URT-2's USB port are plugged in, pass `--port`: the tool never guesses between them.
+
+**Wiring.** GPIO17 (TX) → URT-2 RX, GPIO18 (RX) ← URT-2 TX, GND ↔ GND. Set the URT-2 to take the
+bus from its TTL/MCU header instead of its USB chip (see the board's silkscreen / jumper). Check
+the URT-2's TTL level first: the ESP32 is a 3.3 V part, so a 5 V TX line from the URT-2 needs a
+divider before GPIO18. GPIO33–37 are used by the module's octal flash/PSRAM and cannot be used.
+
+**Power the ESP32 independently of the PC link** (DevKit "UART" port on a USB charger, or its 5V
+pin from a separate supply). If the PC's USB cable is its only supply, unplugging that cable
+switches the ESP32 off and the watchdog cannot act; the servos then keep holding their last goal.
+
+**Build and flash** ([PlatformIO](https://platformio.org/), from `firmware/urt_bridge`):
+
+```sh
+pio test -e native                                   # host unit tests, no hardware
+pio run -e esp32s3 -t upload --upload-port <DevKit "UART" port>
+pio device monitor -p <DevKit "UART" port>           # bridge log, 115200 baud
+```
+
+The log port is UART0; the PC tool uses the native "USB" port. The RGB LED pin differs by board
+revision (`RGB_LED_PIN` in `platformio.ini`: 48 on v1.0, 38 on v1.1).
+
+**Link watchdog.** The bridge parses (never alters) the PC's packets and tracks which IDs may hold
+torque: a WRITE / SYNC_WRITE that sets register 40 non-zero or touches the goal block 42–47 adds
+the ID, a write of register 40 = 0 removes it. While any ID is tracked, the bridge sends torque off
+when
+
+- no byte has come from the PC for 500 ms (`WATCHDOG_MS`; the GUI polls at 50 Hz, and
+  `verify-motion` pauses at most 0.3 s with torque on), or
+- the PC closes the port or its process dies (DTR drops), or USB is suspended.
+
+It waits for 2 ms of bus silence, finishes any half-sent PC packet with a deliberately wrong
+checksum (so the servos discard it), then sends the broadcast WRITE "register 40 = 0" three
+times. LED: dim blue = idle, green = torque tracked, red = watchdog fired (until the PC sends
+again). A clean shutdown of the GUI or a CLI command switches torque off itself, so the watchdog
+stays quiet. The broadcast only reaches servos at the bus's current baud rate.
+
 ## Pre-flight hardware checklist (before first power-up)
 
 1. Multimeter on both soldered harnesses: no short between VCC / GND / SIG; continuity from every
@@ -112,6 +163,8 @@ Serial ports: macOS uses `/dev/cu.*` (the tool maps `/dev/tty.*` to `cu.*` for y
    servo power.
 5. Rest the hand with every joint free (nothing pressed against a hard surface). This is an extra
    safeguard on top of the software guard.
+6. With the ESP32 bridge: TTL levels checked (3.3 V on GPIO18), ESP32 powered independently of the
+   PC link, and `diagnose` S1/S2 passing through the bridge before any write.
 
 ## Why IDs must be assigned first
 
@@ -511,7 +564,8 @@ buzzing or oscillation.
 3. GUI: arm one joint and jog it slowly towards each end of its travel, watching the load.
 4. Trip tests with one joint armed:
    - hold the finger;
-   - unplug USB while it is holding;
+   - unplug USB while it is holding (with the ESP32 bridge: also kill the GUI process; the joint
+     should go limp within ~0.5 s and the LED turn red);
    - lower the supply to 5.4 V.
 5. All joints at low speed, then poses, sync moves and playback. Raise `max_speed` per joint only
    after that.
@@ -531,3 +585,8 @@ buzzing or oscillation.
   the chip vendor's driver (WCH CH34x is built into recent macOS; on Windows, install WCH's CH341SER
   driver if Device Manager shows an unknown USB device).
 - After `assign-id`, power-cycle and re-run `diagnose` to confirm the ID persisted in EEPROM.
+- The ESP32 bridge adds USB-to-UART forwarding time to every exchange. Compare `diagnose` latency
+  p50/p99 through the bridge with a direct URT-2 run before relying on the GUI's
+  `MotionConfig.control_latency_ms` (4 ms); raise it if replies time out.
+- The bridge is USB only for now. A WiFi link needs batched bus exchanges: a 50 Hz cycle makes
+  about ten request/reply round trips, which a per-packet WiFi bridge cannot fit.
