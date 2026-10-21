@@ -165,7 +165,8 @@ def test_hls_joint_panel_shows_its_own_units(qtbot, qapp, tmp_path, monkeypatch)
         assert 1800 <= position <= 2300
         assert "HLS3606 steps" in panel.travel.text()
         assert f"({position * 360 / 4096:.1f}°)" in panel.values["pos"].text()
-        assert "mA" in panel.values["load"].text() and "mA" not in window.panels[1].values["load"].text()
+        scs_id = next(i for i, joint in joints.items() if joint.model == "scs0009")
+        assert "mA" in panel.values["load"].text() and "mA" not in window.panels[scs_id].values["load"].text()
     finally:
         controller.stop()
 
